@@ -9,7 +9,7 @@ digraph modules {
   edge [color="#555555"];
 
   // ---- driver ----
-  cake [label="cake.nim\lcommand line, runs the stages in order\l"];
+  sherbet [label="sherbet.nim\lcommand line, runs the stages in order\l"];
 
   // ---- stages: may take DriverCtx ----
   subgraph cluster_stages {
@@ -40,9 +40,9 @@ digraph modules {
   span   [style=dashed, label="span.nim\lSpan, initSpan, AugFile, file list type\laddFile, getSpanPos (on the file list)\l"];
 
   // ---- edges ----
-  // cake imports every stage; drawn as one edge into the cluster
-  cake -> resolve [lhead=cluster_stages, label=" every stage", fontname="monospace", fontsize=9];
-  cake -> ctx;
+  // sherbet imports every stage; drawn as one edge into the cluster
+  sherbet -> resolve [lhead=cluster_stages, label=" every stage", fontname="monospace", fontsize=9];
+  sherbet -> ctx;
 
   lexer   -> ctx;
   parser  -> {ctx lexer ast};

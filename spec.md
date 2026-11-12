@@ -1,10 +1,10 @@
-# Cake Language Spec — Draft v0.2
+# Sherbet Language Spec — Draft v0.2
 
 Nov 8, 2026 · @Hudson Shi
 
 ## Goals and principles
 
-Cake ("Cake: A Kleen Experience") is a statically typed, compiled language for competitive programming and Advent of Code, built to get from idea to accepted solution with the least friction. It compiles to C and is not meant for large, durable software, though a program can import helper files of its own.
+Sherbet is a statically typed, compiled language for competitive programming and Advent of Code, built to get from idea to accepted solution with the least friction. It compiles to C and is not meant for large, durable software, though a program can import helper files of its own.
 
 **Goals**
 
@@ -564,8 +564,8 @@ total = shapes.map(area).sum()        // each element calls its own overload
 A program can import other source files, mainly so Advent of Code days can share parsing and grid helpers and so a personal library of templates can be reused. There are no packages, no `__init__` files and no manifest: a module is one file, and a folder is only part of a path.
 
 ```
-import geom                 // geom.cak next to this file
-import aoc.parse            // aoc/parse.cak; the module is named parse
+import geom                 // geom.sher next to this file
+import aoc.parse            // aoc/parse.sher; the module is named parse
 import aoc.parse as p       // rename
 import grid2.*              // everything in grid2, unqualified
 import aoc.input.{lines, ints}  // just these names, unqualified
@@ -577,7 +577,7 @@ b = a + geom.Point(3, 4)    // geom's + on Point, found without a prefix
 print(a.dist(b))            // geom's dist, found through Point's module
 ```
 
-**Lookup.** `import a.b` loads `a/b.cak` relative to the importing file. If it is not there, the compiler looks in one user library folder, set by an environment variable, so personal templates are available from any day's folder. The `.cak` extension is a placeholder until the language has a name.
+**Lookup.** `import a.b` loads `a/b.sher` relative to the importing file. If it is not there, the compiler looks in one user library folder, set by an environment variable, so personal templates are available from any day's folder.
 
 **The standard library is always in scope.** Every library name is available unqualified with no import, as if star-imported.
 
