@@ -50,7 +50,7 @@ One Nim module per stage, so each stage can be tested on its own.
 src/
   sherbet.nim        command line and driver
   diag.nim       spans, error collection and printing
-  source.nim     file loading, #in/#out and pragma extraction
+  source.nim     file loading, #in/#out and pragma parsing
   lexer.nim
   ast.nim        AST node types
   parser.nim
@@ -77,8 +77,7 @@ The spec lists seven stages. In the code, inference and monomorphization are one
 
 ### 1. Source
 
-- **Test blocks.** Before lexing, scan lines for directives that are exactly `#in`, `#out` or `#end`, optionally followed by a path and a `//` comment. Their blocks are cut out and stored as test cases; the code lines are kept with their original line numbers so spans stay right.
-- **Pragmas.** `#default int = big`, `#pretty(...)`, `#par(...)` and `#mem arena` or `#mem gc` are also whole lines, parsed here into a pragma record. In an imported file they are an error.
+- **Test blocks and pragmas.** The lexer finds these lines (see Lexer) and this stage's helpers turn them into test cases and a pragma record. Pragmas are `#default int = big`, `#pretty(...)`, `#par(...)` and `#mem arena` or `#mem gc`. In an imported file they are an error.
 - **Files** are read as bytes. Source is UTF-8 but the lexer only cares about ASCII outside string literals.
 
 ### 2. Lexer
@@ -86,14 +85,18 @@ The spec lists seven stages. In the code, inference and monomorphization are one
 Produces tokens with spans: a file index and start and end byte offsets, end exclusive. Line and column are not stored; when printing a diagnostic they come from a binary search over the file's line start offsets, recorded when the file is loaded.
 
 - **Newlines** become `Newline` tokens, which the lexer drops when:
-  - it is inside `( )` or `[ ]` (it tracks a stack of open brackets; `{` does not suppress newlines, since blocks need them),
-  - the previous token is a binary operator, `=`, `=>`, `,`, or an opening bracket,
-  - the next non-blank line starts with `.` (but not `..`, which starts a range).
+  - the innermost open bracket is `( )`, `[ ]` or `.[ ]` (it tracks a stack of open brackets; `{` does not suppress newlines, since blocks need them, even when the `{` is itself inside parentheses),
+  - the previous token is a binary operator other than `..` or `..=` (word operators `and`, `or`, `in`, `is` and `not` count, so `a is not` continues), or is `=`, `=>`, `:`, `,`, or an opening bracket (a range's end may be missing, so `r = 1..` ends at the newline),
+  - the next line that is not blank or only a comment starts with `.` (but not `..`, which starts a range) or `|` (but not `|=`), or with the whole word `else` or `catch`. A statement can never start with any of these, so this covers variant types written one per line, multi-line bitwise expressions and `else` on its own line.
+
+  Every token also records whether a line break came before it, even when the `Newline` was dropped. The parser needs this for trailing closures, because inside `( )` there is no `Newline` token to tell it the `{` is on a later line.
 
   The parser skips `Newline` inside map and set literals, which handles multi-line `{ ... }` literals without the lexer knowing what kind of brace it is.
-- **Strings.** Interpolated strings are lexed into parts: literal text, then for each `{...}` a nested token stream for the expression and the raw text of the format spec after a top-level `:`. The lexer counts braces and skips nested strings so `"{m["a"]}"` works. `{{` and `}}` are literal braces. Raw strings and `"""` strings are handled here, including removing the common indentation.
-- **Numbers.** Underscores are dropped. `0x`, `0b` and `0o` start a whole literal in that base, and a prefix with no digits, or a digit outside the base, is a lexer error. Otherwise, a literal with `.` is fractional. One with an exponent and a whole value, like `1e9`, is a whole literal. Values are kept as exact strings until the type is known, since a literal may become `big`.
-- **Bytes.** `'#'` is a byte literal with the usual escapes.
+- **Directives.** At the start of a line in the main loop, the lexer checks for a whole-line directive or pragma. A test directive (exactly `#in`, `#out` or `#end`, optionally followed by a path and a `//` comment) makes it read raw lines up to the next directive or end of file and store them as a test block, so `"""` and `//` in test data are plain text. A pragma line is stored and produces no tokens. String scanning never reaches this check, so a `#in` inside `"""` stays text. Open brackets do not affect it: the directive still counts and the parser reports the missing closer.
+- **Strings.** Interpolated strings are lexed into parts: literal text, then for each `{...}` a nested token stream for the expression and the raw text of the format spec after a top-level `:`. The lexer counts braces and skips nested strings so `"{m["a"]}"` works. `{{` and `}}` are literal braces. A `=` right before the closing `}` or the top-level `:` marks the `{x=}` form, and the expression's source text is kept for printing; `{a==b}` is an ordinary comparison. Raw strings and `"""` strings are handled here, including removing the common indentation.
+- **Numbers.** Underscores are dropped. `0x`, `0b` and `0o` start a whole literal in that base, and a prefix with no digits, or a digit outside the base, is a lexer error. Otherwise, a `.` joins a number only when a digit follows it, so `0..n` and `5.abs()` work, and a literal with such a `.` is fractional unless it has an exponent. A literal with an exponent is whole when its value is whole, like `1e9` or `2.5e3`, and fractional otherwise, like `1e-3`. Right after a member `.` or `?.`, digits are a plain integer, so `t.0.1` is two tuple accesses. A number directly followed by a letter, like `12abc` or `0XFF`, is a lexer error. Values are kept as exact strings until the type is known, since a literal may become `big`.
+- **Escapes.** Strings and bytes accept `\n \t \r \0 \\ \" \'` and `\xHH`. Anything else is a lexer error.
+- **Bytes.** `'#'` is a byte literal.
 - **Keywords:** `fn let if else while for in break continue return match try catch raise import as record type extern memo and or not is null true false`.
 - **Shorthand parameters.** `$` followed by digits is one token holding the index, as in `$0` and `$12`.
 - **Array views.** `.[` is one token and opens a bracket for newline tracking. The parser treats it as a postfix operator at the same level as indexing, so `a.[i..j].sum()` chains without parentheses.
