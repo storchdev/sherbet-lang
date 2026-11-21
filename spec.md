@@ -13,6 +13,7 @@ Sherbet is a statically typed, compiled language for competitive programming and
 - Fluent chaining over arrays, maps, strings and ranges.
 - Strict compile-time checking after inference, with errors that point at the cause.
 - Built-in input reading, grid, graph and matrix helpers for the problems it is made for.
+- Judge-ready output: `sherbet emit --standalone` prints one self-contained C file that can be submitted to a Linux judge that accepts C.
 
 **Non-goals**
 
@@ -20,6 +21,7 @@ Sherbet is a statically typed, compiled language for competitive programming and
 - Class hierarchies and inheritance.
 - Manual memory management.
 - User-written generic syntax such as `<T>` or trait bounds.
+- Platforms other than Linux, for now. This rules out Windows judges, including Codeforces.
 
 **Principles**
 
@@ -60,14 +62,35 @@ outer: for r in 0..n {    // labeled loop
 - **Semicolons and line breaks.** `;` ends a statement anywhere a newline would, so one-liners work: `for i in 0..n { s += a[i]; t ^= a[i] }` and `fn f(x) = { y = x * 2; y + 1 }`. A trailing `;` is allowed and changes nothing, so `{ print(x); 0; }` still yields `0`. A statement that starts with `if`, `for`, `while`, `match`, `try` or `fn` and ends with its closing `}` needs no `;` before the next statement on the same line: `for x in a { s += x } print(s)`. Any other statement, such as an assignment whose value is an `if`, still needs one. A newline does not end a statement inside `( )` or `[ ]`, after a binary operator, `=`, `=>` or comma, or before a line that starts with `.`, so chains and long expressions can be broken across lines.
 - **Trailing separators.** Every comma-separated list allows a trailing comma: array, map and set literals, tuples, call arguments, parameter lists, record and variant fields, patterns, type syntax and import selectors such as `import geom.{dist, Point,}`. This makes one-item-per-line lists easy to reorder. A trailing comma never changes meaning, and there are no one-element tuples, so `(x,)` is a compile error rather than Python's 1-tuple. `match` arms separated by `;` allow a trailing `;` too, and a variant list may start with `|`.
 - **Bindings:** `x = expr` declares `x` the first time and reassigns it afterwards. Assigning to a name that exists in an enclosing scope of the same function, including one captured by a lambda, reassigns it; otherwise it declares a new local. `let x = expr` is optional and always creates a new binding in the current scope, which is how to shadow. Destructuring needs no parentheses: `a, b = b, a + b` evaluates the right side first. The compiler warns about a variable that is assigned but never read, which catches typos. There is no `const`.
+- **`=` and `:`.** `=` gives a name its value: assignments, `fn` and `type` definitions, parameter defaults and `#default`. `:` labels something without creating or changing a variable: type annotations, map entries, named arguments and fields, match arms and loop labels. So `fn f(k: int = 1)` declares a type and a default, and `f(k: 2)` names an argument.
 - **Control flow:** `if`/`else`, `match` and `try`/`catch` are expressions; `while`, `for x in iterable`, `break` and `continue` are statements. `for` destructures: `for (u, v) in edges`, `for (k, v) in m`, `for (i, x) in a.enumerate()`. Each iteration gets a fresh loop variable, so a closure made inside the loop keeps that iteration's value, not the last one.
 - **Labeled loops:** `outer: for ...` names a loop, and `break outer` or `continue outer` acts on it from any depth.
 - **Boolean operators are words:** `and`, `or` and `not`, as in Python, with `not in` for non-membership. There is no `&&`, `||` or prefix `!`; writing one is a compile error with a hint. `!` appears only in `!=` and in `x!`, which unwraps an optional (see Errors and optionals). `& | ^ ~` are bitwise.
 - **Chained comparisons:** `0 <= r < n` means `0 <= r and r < n`, with `r` evaluated once.
-- **Ranges:** `a..b` excludes `b`, `a..=b` includes it, and both are lazy. `a..` has no end, so `for t in 1.. { ... }` loops until `break`. Slices may leave out either end: `a[i..]`, `a[..j]`.
+- **Ranges:** `a..b` excludes `b`, `a..=b` includes it, and both are lazy. `a..` has no end, so `for t in 1.. { ... }` loops until `break`. Slices may leave out either end: `a[i..]`, `a[..j]`. `..` binds looser than arithmetic and bit operators, so `a..b+1` is `a..(b+1)` and `0..1<<n` loops over every bitmask.
+- **Operator precedence,** lowest first:
+
+  | Operators | Notes |
+  | --- | --- |
+  | `or` | Logical or, or an optional's default |
+  | `and` | |
+  | `not` | Prefix |
+  | `== != < > <= >= in` `not in` `is` | Chained |
+  | `.. ..=` | Non-associative; either end may be missing |
+  | `\|` | |
+  | `^` | |
+  | `&` | |
+  | `<< >>` | Left-associative |
+  | `+ -` | Left-associative |
+  | `* / ~/ % @ \` | Left-associative |
+  | unary `- ~` | Prefix |
+  | `**` | Right-associative; `-2**2` is `-4`, and the exponent may be negated, as in `x ** -1` |
+  | `. () [] .[] ! ?.` | Postfix |
+
+  Bare `try expr` and `raise expr` take everything tighter than `or` as their operand.
 - **Blocks are expressions.** `{ ... }` runs its statements, and its value is its last expression. A block that ends in a statement, such as a `for` loop or an assignment, has no value (unit, which is not `null`, so `x = print(1)` is an error). The rule is the same for function bodies, lambda bodies, `if`, `match` and `try`.
 - **Functions** are `fn name(args) = expr`, and a longer body is a block: `fn f(x) = { ... }`. There is no second form; `fn f(x) { ... }` without the `=` is an error with a hint. Lambdas, `(args) => expr`, follow the same rule; see Closures.
-- **Where `{` starts a block.** After `fn ... =`, after `=>`, after a match arm's colon, and after the head of `if`, `else`, `while`, `for`, `match`, `try` or `catch`, `{` always starts a block. A map literal in one of those places needs parentheses: `fn empty() = ({})`. Anywhere else in an expression, `{` starts a map literal if it is empty or holds `key: value` entries, and a shorthand closure otherwise (see Closures). So there is no bare block as a value: `x = { a + 1 }` is a closure, not a number.
+- **Where `{` starts a block.** After `fn ... =`, after `=>`, after a match arm's colon, and after the head of `if`, `else`, `while`, `for`, `match`, `try` or `catch`, `{` always starts a block. A map literal in one of those places needs parentheses: `fn empty() = ({})`. Outside such a head, a `{` on the same line after a call's `)` or a `.name` is a trailing closure. Anywhere else in an expression, `{` starts a map literal if it is empty or holds `key: value` entries, and a shorthand closure otherwise (see Closures). So there is no bare block as a value: `x = { a + 1 }` is a closure, not a number. In the head of an `if`, `while`, `for` or `match`, the first `{` outside brackets starts the body, so a map literal there needs parentheses: `if k in ({1: 2}) { ... }`.
 - **`return`** leaves the function early with a value and has type never, so `x = if ok { 5 } else { return -1 }` type-checks. The return type unifies every `return` with the body's value. A `return` on the last line is allowed but never needed. It is an error if some paths produce a value and others do not. Inside a lambda, `return` exits the lambda only.
 - **Top level and scope.** Top-level variables are globals, visible inside every function, so input read at the top can be used by `fn dfs(u)` below it. Functions can be called before the line that defines them. Reading a global before its first assignment, as when a function runs above the line that sets it, traps with kind `"unset"` and names the variable. A `fn` may also be defined inside another function, where it can recurse and captures variables by reference like a lambda.
 - **Comments:** `//` to the end of the line.
@@ -118,12 +141,13 @@ assert(lo <= hi, "bad range {lo} {hi}")                // an ordinary function
 try { run() } catch e { if e.kind != "eof" { raise e } }   // rethrow
 ```
 
-- **One error type.** `e` has `.kind` (`"overflow"`, `"index"`, `"key"`, `"div"`, `"eof"`, `"null"`, `"match"`, `"assert"`, `"unset"` or `"raise"`) and `.msg`. There are no typed catch clauses; test `e.kind` and rethrow.
+- **One error type.** `e` has `.kind` (`"overflow"`, `"index"`, `"key"`, `"div"`, `"eof"`, `"null"`, `"match"`, `"parse"`, `"assert"`, `"unset"` or `"raise"`) and `.msg`. There are no typed catch clauses; test `e.kind` and rethrow.
 - **`try { ... } catch e { ... }`** is an expression whose branches unify like `if`. `catch` without a name is allowed.
 - **Bare `try expr`** yields `T?`, with `null` if `expr` traps. It binds tighter than `or`, so `try int(s) or 0` reads as expected.
+- **Control flow passes through `try`.** `return`, `break`, `continue` and labeled forms such as `break outer` work inside a `try` or `catch` block as they would in any other block.
 - **`raise "msg"`** has type never, so it fits any branch. `raise e` rethrows a caught error unchanged.
 - **`assert(cond, msg)`** is a library function, not a keyword. It traps with kind `"assert"` when `cond` is false, and `msg` is optional.
-- **Implementation.** The runtime never frees, so unwinding has no cleanup to do and `setjmp`/`longjmp` in the C runtime is enough; no unwind tables or landing pads are needed. Each `try` body compiles to a closure called through `rt_try(fn, env)`, so locals it touches already live in the closure environment and `longjmp` cannot clobber them. Code outside a `try` pays nothing.
+- **Implementation.** Memory is reclaimed by tracing from live values, never by scope exit, so unwinding has no cleanup to do and `setjmp`/`longjmp` in the C runtime is enough; no unwind tables or landing pads are needed. Each `try` body compiles to a closure called through `rt_try(fn, env)`, so locals it touches already live in the closure environment and `longjmp` cannot clobber them. Code outside a `try` pays nothing.
 - **Stack overflow** from deep recursion is not catchable. The runtime runs the program on a large stack and reports `stack overflow` through a `sigaltstack` handler instead of a bare segfault.
 
 **Optionals**
@@ -160,14 +184,15 @@ Numbers are statically typed machine types by default, with Python-style arithme
 
 **Rules**
 
-1. A literal is "some number" until constrained. If nothing pins it, whole literals become `int` and fractional ones `float`. Underscores separate digits, as in `1_000_000_007`, and an exponent literal with a whole value, such as `1e9` or `2e5`, is a whole literal, so `INF = 1e18` is an `int`. An integer literal too large for `int` is a compile error with a hint to annotate `big`; where the context is already `big`, it is fine. The program-level pragma `#default int = big` changes the fallback, and because `int` is an alias resolved before checking, the whole program flips with no other change.
+1. A literal is "some number" until constrained. If nothing pins it, whole literals become `int` and fractional ones `float`. Underscores separate digits, as in `1_000_000_007`. `0x`, `0b` and `0o` write whole literals in base 16, 2 and 8, as in `0xff`, `0b1010_0101` and `0o755`; the prefix is lowercase, hex digits may be either case, and there is no fraction or exponent, so `0xe5` is `229`. An exponent literal with a whole value, such as `1e9` or `2e5`, is a whole literal, so `INF = 1e18` is an `int`. An integer literal too large for `int` is a compile error with a hint to annotate `big`; where the context is already `big`, it is fine. The program-level pragma `#default int = big` changes the fallback, and because `int` is an alias resolved before checking, the whole program flips with no other change.
 2. Implicit widening only: `u8` to `int` to `float`, and `int` to `big`, `Mod(m)` or `rat`, so `x: big = 1` and `total + count` just work. Arithmetic on integer types narrower than `int` promotes to `int`, so `s[i] - '0'` is an `int`, and storing back into a narrow slot is range-checked. Lengths and indices are `int`, so `i < a.len()` never mixes signed and unsigned. Narrowing and mixing signed with unsigned are compile errors; convert by calling the type, as in `u8(x)`.
 3. `/` always yields a float, `~/` is floor division, and `%` takes the sign of the divisor, so `-7 % 3 == 2`.
-4. `**` is power. An integer to an integer power stays an integer, and a negative exponent traps, except on `Mod(m)`, where `x ** -1` is the modular inverse and traps if none exists. Bit operators are `& | ^ ~ << >>`.
-5. Overflow traps, using checked arithmetic in the generated C (see Compiler architecture). Code that wants wraparound, such as hashing, uses the wrapping types below instead of turning checks off.
-6. `big`, `rat` and `bigfloat` are GMP's `mpz_t`, `mpq_t` and `mpf_t`, so values cross the FFI boundary to GMP-using C code unchanged. The runtime links GMP instead of a hand-written bignum.
-7. **Conversions.** Every conversion is a call to the type's name. Between numbers, `int(x)` truncates a float toward zero, and every narrowing conversion, such as `u8(n)` or `int(x)` on a huge float, is range-checked and traps if the value does not fit. Parsing uses the same names: `int(s)`, `float(s)` and `big(s)`. All of them work as `.map(int)` and, through uniform call syntax, as `x.int()`. There is no `as` operator; `as` only renames imports. `text(b)` turns a byte into a one-character string, since `str(b)` gives its number; `text(row)` and `text(grid)` do the same for a byte array and a byte grid, which becomes lines. `text` is an ordinary overloaded function, so `b.text()` works too and you can add overloads for your own types. There is no `ord`: `'a'` is already a `u8`, so `s[i] - 'a'` needs no conversion.
-8. **Limits.** `int.max`, `int.min` and the same on every fixed-width type, plus `inf` for floats. Arithmetic past `int.max` traps, which catches a careless `dist[u] + w` on an unvisited node.
+4. `**` is power. An integer to an integer power stays an integer, and a negative exponent traps, except on `Mod(m)`, where `x ** -1` is the modular inverse and traps if none exists. An integer `**` that does not fit its type traps with kind `"overflow"`. On `Mod(m)` it reduces instead and never overflows. Bit operators are `& | ^ ~ << >>`.
+5. **Shifts** trap with kind `"overflow"` if the amount is negative or at least the type's width, or if `<<` would lose a bit or change the sign, so `1 << 63` traps on `int` and fits in `u64`. `>>` on a negative number rounds down. `big` has no width limit. Wrapping types drop high bits on `<<`, as hashing expects, but still trap on a bad amount. Other `Mod(m)` types have no shifts.
+6. Overflow traps, using checked arithmetic in the generated C (see Compiler architecture). Code that wants wraparound, such as hashing, uses the wrapping types below instead of turning checks off.
+7. `big`, `rat` and `bigfloat` are GMP's `mpz_t`, `mpq_t` and `mpf_t`, so values cross the FFI boundary to GMP-using C code unchanged. The runtime links GMP instead of a hand-written bignum.
+8. **Conversions.** Every conversion is a call to the type's name. Between numbers, `int(x)` truncates a float toward zero, and every narrowing conversion, such as `u8(n)` or `int(x)` on a huge float, is range-checked and traps if the value does not fit. Parsing uses the same names: `int(s)`, `float(s)` and `big(s)`. All of them work as `.map(int)` and, through uniform call syntax, as `x.int()`. Parsing is strict: the whole string must be a number, with an optional leading `+` or `-` and no spaces, so `int("3.7")`, `int(" 5")` and `int("")` trap with kind `"parse"`, and a number too large for the type traps with `"overflow"`. Integer types take a base from 2 to 36, with letters in either case and no `0x` prefix: `int("ff", base: 16)`, `s.big(base: 7)`. There is no `as` operator; `as` only renames imports. `char(n)` turns a byte value into a one-character string, since `str(b)` gives its number: `char(65)` is `"A"` and `s[i].char()` is the byte at `i` as a string. It takes any integer type, because byte arithmetic such as `'a' + 2` promotes to `int`, and traps with kind `"overflow"` outside 0 to 255. Despite the name, `char` is only this function, and writing it as a type is a compile error with a hint to use `u8`. `display(row)` and `display(grid)` draw a byte array and a byte grid as text, and `{b:display}` draws one byte. `display` is an ordinary overloaded function, so you can add overloads for your own types. It also draws grids, trees and graphs; see Printing and debugging. There is no `ord`: `'a'` is already a `u8`, so `s[i] - 'a'` needs no conversion.
+9. **Limits.** `int.max`, `int.min` and the same on every fixed-width type, plus `inf` for floats. Arithmetic past `int.max` traps, which catches a careless `dist[u] + w` on an unvisited node.
 
 **Modular arithmetic.** `Mod(m)` is a number type whose `+ - * **` are always reduced modulo `m`, so a problem that says "print the answer modulo 1,000,000,007" needs no `%` anywhere:
 
@@ -195,7 +220,7 @@ Strings, arrays, maps and sets are built in, homogeneous, and hashable or compar
 | Type | Literal | Notes |
 | --- | --- | --- |
 | String `str` | `"abc"`, `"x = {x}"`, `r"raw"` | Immutable bytes; every literal interpolates; see Strings and formatting |
-| Array `[T]` | `[1, 2, 3]` | Growable and bounds-checked; `a[-1]` is the last element; `a[i..j]` slices; `+` concatenates and `* n` repeats |
+| Array `[T]` | `[1, 2, 3]` | Growable and bounds-checked; `a[-1]` is the last element; `a[i..j]` copies a slice and `a.[i..j]` is a shared view; `+` concatenates and `* n` repeats |
 | Map `{K: V}` | `{1: "a"}` | Hash map; any value without closures can be a key, hashed by its contents; `map(default: v)` makes one with a default value |
 | Set | `set(1, 2, 3)` | Hash set; `x in s` tests membership; `\| & - ^` are union, intersection, difference and symmetric difference |
 | Deque, priority queue | `deque()`, `heap()` | Library types; `heap` is a min-heap with an optional key function |
@@ -204,11 +229,24 @@ Strings, arrays, maps and sets are built in, homogeneous, and hashable or compar
 **Conventions**
 
 - **Arrays, maps and sets are references,** like records: `b = a` and passing to a function share one collection, and a change through either name shows in both. `a += [x]` appends in place, like `push`, so an alias sees it too. Strings are immutable, so `s += "x"` always makes a new string.
+- **Array slices copy.** `a[i..j]` returns a new array, so changing it never affects `a`. String slices share bytes, which is invisible because strings are immutable.
+- **Assigning to a view** copies into the range: `a.[i..j] = b` traps with kind `"index"` unless `b` has length `j - i`, and works when `b` overlaps the range. `a[i..j] = b` is a compile error with a hint to use `.[`, since it would only write to a temporary copy.
+- **Array views share.** `a.[i..j]` is a `[T]` over the same elements, so a write through either one shows in the other. It takes the same ranges as a slice, including `a.[i..]` and `a.[..j]`, and chains like any array: `solve(a.[1..])`, `g[r].[l..k].sum()`.
+  - A view has a fixed length, so `push` or anything else that grows it traps. `v.copy()` makes an ordinary independent array.
+  - If the source array grows, it may move to a new buffer. The view stays memory-safe but can stop sharing with the source. `--debug` builds trap on using a view after its source has moved or no longer covers its range.
+  - Views are for arrays only. Using `.[` on a string is a compile error with a hint to use `s[i..j]`, which is already cheap.
 - **Copying.** `x.copy()` copies `x` and every array, map, set and tuple inside it, all the way down, so `g2 = g.copy()` on a grid gives independent rows. Records inside are still shared. Two named arguments change that:
   - `depth: n` stops after `n` levels, so `a.copy(depth: 1)` is a shallow copy that shares its elements.
   - `records: true` copies records too, which makes a full deep copy. Objects reached twice are copied once, so shared structure and cycles are kept.
   - The value `.copy()` is called on is always copied, even when it is a record. Numbers, strings and closures are never copied, since they are immutable or shared by design.
-- `x in coll` works for arrays, strings, sets and map keys.
+- **Membership.** `x in c` means `c.contains(x)`, and `x not in c` is its negation. Both work on everything that can be iterated:
+  - Arrays and views scan for an element equal to `x`.
+  - Strings accept a `str` to find as a substring or a `u8` byte.
+  - Sets test elements and maps test keys, in expected constant time.
+  - Ranges, including open and stepped ones, compare against their bounds in constant time, so `x in 0..n` never loops.
+  - Lazy chains run until the first match. A miss on an infinite chain never finishes.
+  - A record or variant supports both by defining `fn contains(c: Bag, x)`. On any other type, or with an `x` of the wrong type, it is a compile error.
+- **Maps and sets iterate in insertion order.** Updating a key keeps its position, removing one keeps the order of the rest, and adding it back puts it last. Printing still sorts.
 - **Negative indices are literal only.** `a[-1]` and `a[-2..]` count from the end, but a computed index that comes out negative traps, so `dp[i - 1]` at `i = 0` is an error instead of a silent read of the last element.
 - **A lookup that can miss returns an optional:** `m.get(k)`, `s.find(x)`, `a.find(pred)`, `a.position(pred)` and `bsearch`. `min` and `max` of an empty collection trap, as in Python.
 - `m[k] += 1` on a missing key starts from zero for numeric values, which gives counters for free. The same goes for mutating a missing value in place: `m[k].push(x)` starts from `[]`, `m[k].add(x)` from an empty set and `m[k] += "s"` from `""`, which gives grouping for free. Reading a missing `m[k]` otherwise traps, while `m.get(k)` returns an optional, so `m.get(k) or 0` works.
@@ -228,7 +266,7 @@ Strings, arrays, maps and sets are built in, homogeneous, and hashable or compar
 - Strings have `.split(sep)`, `.trim()`, `.words()`, `.lines()`, `.bytes()`, `.contains(x)`, `.find(x)` and `.reverse()`.
 - **`s.extract_ints()`** pulls every integer out of any text, in whatever numeric type the context asks for: `"Sensor at x=-3, y=17".extract_ints()` is `[-3, 17]`. A `-` is a minus sign only when it does not follow a digit, so the range `"3-7"` gives `[3, 7]`. `s.extract_floats()` does the same for decimals.
 - `s[i]` returns the byte at `i` as a `u8`, and `'#'` is a `u8` byte literal, so `s[i] == '#'` and `s[i] - '0'` work with no char type. `s[i..j]` slices to a string. Indexing by UTF-8 code point, as `s.nth(i)`, is planned after v1.
-- **Sorting returns a new array.** `a.sort()`, `a.sort_by(key)` and `a.reverse()` leave `a` alone and return the result, so they chain (`a.sort().reverse().take(3)`) and `x = a.sort()` is never a silent `null`. Sort in place with `a = a.sort()`. `a.sort(desc: true)` sorts descending, and `sort()` uses the element type's ordering, so `[int]` sorts numerically. Since the v1 runtime never frees, sorting a huge array many times in a loop can use a lot of memory; `a.sort_in_place()` exists for that case.
+- **Sorting returns a new array.** `a.sort()`, `a.sort_by(key)` and `a.reverse()` leave `a` alone and return the result, so they chain (`a.sort().reverse().take(3)`) and `x = a.sort()` is never a silent `null`. Sort in place with `a = a.sort()`. Every sort is stable, including `desc`, so equal elements keep their original order. `a.sort(desc: true)` sorts descending, and `sort()` uses the element type's ordering, so `[int]` sorts numerically. Sorting a huge array many times in a loop allocates a lot, and in arena mode none of it is reclaimed; `a.sort_in_place()` exists for that case.
 
 ## Strings and formatting
 
@@ -242,9 +280,9 @@ Every string literal interpolates, like a Python f-string with no `f` prefix. Th
 "{n:bin r8 fill0}"   // 00000101: binary, right-aligned in 8, padded with 0
 "{x=}"               // x=5, for debugging
 "{xs:.2}"            // [1.00, 2.50]: a spec on a container applies to each element
-"{row:text}"         // #..#.: bytes as text
+"{row:display}"         // #..#.: bytes as text
 "{state:pp}"         // pretty-printed
-"{grid:text i4}"     // bytes as text, pretty-printed with indent 4
+"{grid:display i4}"     // bytes as text, pretty-printed with indent 4
 "{x:.{p}}"           // precision from a variable
 r"\d+{2}"            // raw string: no interpolation, no escapes
 "{{literal}}"        // {literal}
@@ -257,8 +295,9 @@ A spec is a list of words separated by spaces. Each word sets one thing and can 
 ```
 {n:r3 fill0}            {n:fill0 r3}          // the same
 {x:.2 r10}              {n:hex}               {n:, r12}
-{grid:text pp}          {grid:text indent4 many}
+{grid:display pp}          {grid:display indent4 many}
 {n:b r8 f0}             {n:bin r8 fill0}      // the same: words are prefix-matched
+{n:base36}              {n:b7 r5 f0}          // any base; b7 is base7
 ```
 
 | Word | Example | Output | Meaning |
@@ -267,20 +306,22 @@ A spec is a list of words separated by spaces. Each word sets one thing and can 
 | `lN` `cN` `rN` | `{n:r5}`, `{s:c7}` | `   42`, `  ab   ` | Left, center or right in width N |
 | `fillC` | `{n:r3 fill0}`, `{s:l6 fill.}` | `007`, `ab....` | Pad with C instead of spaces; needs an alignment |
 | `hex` `HEX` `bin` `oct` | `{n:hex}`, `{n:bin r8 fill0}` | `ff`, `00000101` | Base 16 (lower or upper case), 2 or 8 |
+| `baseN` | `{n:base7}`, `{n:b36 r6 fill0}` | `141`, `0000rs` | Any base from 2 to 36, with lowercase letters |
 | `sci` | `{x:.2 sci}` | `3.14e+00` | Scientific notation, only when asked for |
 | `,` | `{n:,}` | `1,234,567` | Thousands separators |
-| `text` | `{b:text}`, `{row:text}`, `{grid:text}` | `#`, `#..#.`, lines of text | Bytes read as characters, by calling `text(x)`; works on any type with a `text` overload |
+| `display` | `{b:display}`, `{row:display}`, `{grid:display}` | `#`, `#..#.`, lines of text | The drawn form, by calling `display(x)`: bytes as characters, plus grids, trees, graphs and any type with a `display` overload |
 | `pp` | `{x:pp}` | (multi-line) | The pretty form |
-| `wrapN` `indentN` `maxN` | `{grid:text i4}` | (multi-line) | Pretty-print options; any of them turns on the pretty form; see Printing and debugging |
+| `wrapN` `indentN` `maxN` | `{grid:display i4}` | (multi-line) | Pretty-print options; any of them turns on the pretty form; see Printing and debugging |
 | `one` `many` `auto` | `{state:many}` | (multi-line) | The `lines` option: never break, always break, or break when too wide |
 | `=` after the expression | `{x=}`, `{x=:.2}` | `x=5`, `x=3.14` | Prints the expression's text, then its value |
 
 - **Values are glued on.** A word that takes a value is written with the value attached, the way `r3` and `.3` already work: `fill0`, `indent4`, `wrap120`, `max20`. There is no punctuation inside a spec, so the `:` after the expression is the only colon.
-- **Every word is prefix-matched,** like named arguments: `{n:b r8 f0}` is `{n:bin r8 fill0}`, `{row:t}` is `{row:text}` and `{x:i4 w120}` is `{x:indent4 wrap120}`. A word with a value attached only matches names that take a value, and a bare word only matches names that do not, so `m20` is `max20` while `m` alone is `many`. Most words need one letter; `oct` and `one` need two (`oc`, `on`). A prefix that fits two words is an error that lists them.
+- **Every word is prefix-matched,** like named arguments: `{n:b r8 f0}` is `{n:bin r8 fill0}`, `{row:d}` is `{row:display}` and `{x:i4 w120}` is `{x:indent4 wrap120}`. A word with a value attached only matches names that take a value, and a bare word only matches names that do not, so `m20` is `max20` while `m` alone is `many`. Most words need one letter; `oct` and `one` need two (`oc`, `on`). A prefix that fits two words is an error that lists them.
 - **`fill` takes the word's last character** as its value, including characters that mean something elsewhere in a spec: `fill0`, `fill.`, `fill,`, `fill#`, `f*`. Everything before that character must be a prefix of `fill`. Space is the default, so it is never written; a fill from a variable uses `fill{c}`.
 - **Width needs an alignment.** `{n:5}` and `{n:03}` are compile errors with a hint (`write {n:r5}` or `{n:r3 fill0}`), since a bare number says nothing about which side is padded. This drops Python's hidden rule that numbers default to the right and strings to the left. Alignment is `l`, `c` or `r`, not Python's `< ^ >`.
 - **`.N` means decimal places.** In Python, `{x:.3}` means three significant digits, so `1234.5` becomes `1.23e+03`. Here it is always fixed-point. `.N` on an integer widens it to a float; on a string it is an error.
 - **Zero fill keeps the sign first.** `{-7:r3 fill0}` is `-07`, where Python gives `0-7`.
+- **Bases are one setting.** `hex`, `HEX`, `bin`, `oct` and `baseN` work on integer types and cannot be combined with each other, `.N` or `,`. Negative numbers keep their sign, so `{-5:bin}` is `-101`. A base outside 2 to 36 is a compile error when constant and traps with kind `"parse"` otherwise.
 - **Type-checked.** The spec is checked against the value's type at compile time: `{s:hex}` on a string, a setting given twice, or an unknown word is an error that lists the valid words.
 - **Values from expressions.** Any part of a spec can be `{expr}`, as in Python: `{x:.{p}}`, `{s:r{w}}`, `{grid:i{k}}`, `{s:r9 fill{c}}`. This also covers a fill that is a space or a brace. `x.fmt(".{p} r10")` takes a whole spec as a string.
 - **Raw strings,** `r"..."`, have no interpolation and no escapes, for regex-like or brace-heavy text.
@@ -307,7 +348,7 @@ Every value prints the way it would be written in code, so what you read back is
 | Map, set | `{1: "a", 2: "b"}`, `set(1, 2)` |
 | Optional, bool | the value or `null`, `true` |
 
-- **Bytes print as numbers**, since a `u8` may be a count as easily as a character. `{b:text}` prints one as a character, `{row:text}` prints a byte array as text and `{grid:text}` a byte grid as lines; `b.text()` gives the same string in code.
+- **Bytes print as numbers**, since a `u8` may be a count as easily as a character. `{b:display}` prints one as a character, `{row:display}` prints a byte array as text and `{grid:display}` a byte grid as lines; `b.char()` gives one byte's string in code.
 - **Strings are quoted inside containers, not at the top level.** `print("hi")` prints `hi`, while `print(["hi"])` prints `["hi"]`, which makes a `"1"` versus `1` bug visible.
 - **Maps and sets print in sorted key order** when their keys are comparable, so output is deterministic.
 - **Cycles** through records print as `<cycle Node>` instead of looping forever.
@@ -320,7 +361,7 @@ Every value prints the way it would be written in code, so what you read back is
 dbg(x)                      // [line 12] x = 5, and returns x
 total = xs.map(f).dbg().sum()   // [line 13] xs.map(f) = [...], mid-chain
 pp(state)                   // pretty-printed
-pp(row, "text", lines: Many)  // element spec, then options
+pp(row, "display", lines: Many)  // element spec, then options
 eprint("dist", d)           // print, but to stderr
 ```
 
@@ -352,18 +393,18 @@ In code, the names start with different letters, so each can be shortened to one
 - `print` ignores these options, because it writes answers.
 - `dbg` and `pp` always quote strings, so stray whitespace is visible.
 
-**Views for grids, trees and graphs**
+**Drawing grids, trees and graphs**
 
-These are library functions in the language itself, called as methods. They print to stderr.
+`str(x)` is the form written in code, and `display(x)` is the drawn form. Only things with a picture have a drawn form: bytes, byte arrays, grids, trees, graphs and types that define it, so `display(5)` is a compile error. `display` is an ordinary overloaded library function that returns a string and prints nothing: `g.display().eprint()` draws to stderr, and `print(g.display())` or `print("{g:display}")` to stdout. Define `fn display(b: Board)` to draw your own type. Discarding the result of `display` is a compile error with a hint to use `.eprint()`.
 
-- **Grids.** `g.show()` on a `[[T]]` or `[str]` prints an aligned block with no brackets. Byte grids print as characters, `bool` grids as `#` and `.`, and numbers right-aligned in equal-width columns, which is how Advent of Code draws its puzzles.
+- **Grids.** `g.display()` on a `[[T]]` or `[str]` gives an aligned block with no brackets. Byte grids print as characters, `bool` grids as `#` and `.`, and numbers right-aligned in equal-width columns, which is how Advent of Code draws its puzzles.
 
   ```
   #..#.
   .##..
   ```
 
-- **Trees.** `t.show()` draws a tree like the `tree` command, and `t.show(v => "{v}: {val[v]}")` labels each node.
+- **Trees.** `t.display()` draws a tree like the `tree` command, and `t.display(label: v => "{v}: {val[v]}")` labels each node.
 
   ```
   1
@@ -373,8 +414,8 @@ These are library functions in the language itself, called as methods. They prin
   └── 3
   ```
 
-  It works on library trees (`tree(n)`), and on recursive records and variants with no extra code: the compiler already derives their printing and knows which fields refer back to the same type, so `show(root)` draws a binary search tree or an expression tree directly. For anything else, `show_tree(root, n => n.kids)` takes a function that returns the children.
-- **Graphs.** `g.show()` prints adjacency lists, one node per line, such as `1 -> 2 (w=5), 3`. `g.dot()` returns Graphviz text for larger graphs. Drawing arbitrary graphs as 2D text is a hard layout problem and out of scope; a layered drawing for small DAGs may come later.
+  It works on library trees (`tree(n)`), and on recursive records and variants with no extra code: the compiler already derives their printing and knows which fields refer back to the same type, so `display(root)` draws a binary search tree or an expression tree directly. For anything else, `display(root, kids: n => n.kids)` takes a function that returns the children.
+- **Graphs.** `g.display()` gives adjacency lists, one node per line, such as `1 -> 2 (w: 5), 3`. `g.dot()` returns Graphviz text for larger graphs. Drawing arbitrary graphs as 2D text is a hard layout problem and out of scope; a layered drawing for small DAGs may come later.
 
 ## Tuples, named tuples and records
 
@@ -473,7 +514,7 @@ Functions are first-class, and any function can be called as a method on its fir
   - **Scope is the braces.** `$0` belongs to the nearest shorthand braces around it, so `lines.map { int($0) }` does what it says. Braces of an `if`, `match` or `for` inside the closure are ordinary blocks: `{ if $0 > 0 { $0 } else { 0 } }`.
   - **Parameter count** is the highest `$n` used plus one, so `{ $1 }` takes two and ignores the first. Braces with no `$n` take no parameters.
   - **Nesting.** An inner shorthand closure cannot reach the outer one's `$0`; name the outer parameter with `=>`: `grid.map(row => row.map { $0 + row.len() })`.
-  - The body is a block, so it can hold statements and its value is its last expression. A body that starts with a typed local, `{ y: int = $0; ... }`, would read as a map literal, so that case uses `=>`.
+  - The body is a block, so it can hold statements and its value is its last expression. A trailing closure can start with a typed local: `xs.map { y: int = $0; y * 2 }`. Inside parentheses, `f({ y: int = $0; ... })` would read as a map literal, so that case uses `=>`.
   - Using `$0` outside any shorthand braces is a compile error.
 - **Trailing closures.** A shorthand closure written after a call's parentheses is passed as its last argument, and empty parentheses can be left out: `xs.fold(0) { $0 + $1 }`, `xs.map { $0 * 2 }`. The `{` must be on the same line as the call. A trailing closure is not allowed in the head of an `if`, `while`, `for` or `match`, where `{` starts the body, so write `if xs.any({ $0 > 0 }) { ... }` there.
 - They compile by closure conversion: an environment struct plus a function pointer, inlined when the closure does not escape.
@@ -481,7 +522,7 @@ Functions are first-class, and any function can be called as a method on its fir
 
 **Uniform call syntax.** `x.f(y)` is sugar for `f(x, y)`. The compiler tries a field named `f` first, then a free function. Any library function over a graph therefore becomes a graph method with no extra declaration.
 
-**Default and named arguments.** `fn f(a, k = 1)` gives `k` a default, and a caller can name any argument after the positional ones: `heap(key: { -$0 })`, `t.show(label: v => "{v}")`. The library relies on this for optional arguments such as `read_ints()` without a count.
+**Default and named arguments.** `fn f(a, k = 1)` gives `k` a default, and a caller can name any argument after the positional ones: `heap(key: { -$0 })`, `t.display(label: v => "{v}")`. The library relies on this for optional arguments such as `read_ints()` without a count.
 
 - **Defaults are evaluated on every call** that leaves them out, never once at definition, so `fn walk(u, seen = set())` gets a fresh set each time. This avoids Python's shared mutable default.
 - A default may use earlier parameters: `fn sub(a, lo = 0, hi = a.len())`.
@@ -516,7 +557,7 @@ min(..xs)
 
 `print` and the typed readers `read(...)` and `read_rows(...)` take arguments of mixed types, or types as arguments, so they are compiler built-ins rather than library functions.
 
-**Overloading.** Any function, operator or hook can have several definitions. They are told apart by number of parameters or by annotated parameter types, and an unannotated parameter matches anything. This is what lets the library define `show` for grids, trees and graphs, and `min(a, b)` next to `xs.min()`.
+**Overloading.** Any function, operator or hook can have several definitions. They are told apart by number of parameters or by annotated parameter types, and an unannotated parameter matches anything. This is what lets the library define `display` for grids, trees and graphs, and `min(a, b)` next to `xs.min()`.
 
 ```
 record Point(x, y)
@@ -532,7 +573,7 @@ fn *(a: int, b: Vec) = ...    // 2 * v is its own definition
 - No implicit conversion applies to user-defined overloads, and builtin numeric widening stays in the builtin table.
 - A fully annotated body is checked at its definition. Unannotated parameters keep it generic, checked at instantiation.
 - Two definitions that could accept the same call equally well are an error at the second definition, and that includes parameter counts that overlap through defaults. A literal argument that fits more than one overload, such as `f(1)` with `f(x: int)` and `f(x: float)`, takes its default type.
-- Overloadable operators are `+ - * / // % ** @ \ ==` and unary `-`. The hooks `cmp`, `hash` and `str` customize derived behavior.
+- Overloadable operators are `+ - * / ~/ % ** @ \ ==` and unary `-`. The hooks `cmp`, `hash` and `str` customize derived behavior, and `contains` defines `in` and `not in`.
 - `==`, `hash` and `cmp` are derived structurally. Overriding `==` without `hash` is an error. `cmp(a, b)` returns negative, zero or positive and derives `< > <= >=`, `sort` and priority queue ordering.
 - `str` controls both `print(p)` and `"{p}"`, and containers call it on their elements.
 
@@ -654,7 +695,7 @@ loops = cells.par().filter { g[$0] == '.' and loops_with($0) }.count()
 - **Traps.** If an element traps, the remaining threads stop, and the trap from the lowest index is raised in the caller, where `try` can catch it.
 - **Nesting.** A `.par()` inside a parallel step runs serially.
 - **Thread count.** One thread per core by default. `#par(threads: 4)` sets it for the program, and `#par(threads: 1)` makes every `.par()` serial, which helps when debugging.
-- **Implementation.** The runtime starts a thread pool the first time `.par()` runs. Threads claim chunks with an atomic counter, and each has its own bump allocator, so allocation needs no lock and the never-free arena stays simple. A parallel chain is compiled as one fused loop body per chunk.
+- **Implementation.** The runtime starts a thread pool the first time `.par()` runs. Threads claim chunks with an atomic counter, and each allocates from its own blocks, so allocation needs no lock. Garbage collection never runs during a parallel step. A parallel chain is compiled as one fused loop body per chunk.
 
 ## Input and output
 
@@ -701,10 +742,10 @@ Graphs, trees, matrices and algorithms are library code written in the language 
 
 | Area | Examples |
 | --- | --- |
-| Graphs | `graph(n)`, `g.edge(u, v, w)`, `g.arc(u, v)`, `g.bfs(s)`, `g.dijkstra(s)`, `g.topo_sort()`, `g.components()`, `g.bridges()`, `g.show()`, `g.dot()`; weights are generic over `int` and `float` |
-| Trees | `tree(n)`, parent and depth arrays, Euler tour, LCA, `t.show()`, `show_tree(root, kids)` |
+| Graphs | `graph(n)`, `g.edge(u, v, w)`, `g.arc(u, v)`, `g.bfs(s)`, `g.dijkstra(s)`, `g.topo_sort()`, `g.components()`, `g.bridges()`, `g.display()`, `g.dot()`; weights are generic over `int` and `float` |
+| Trees | `tree(n)`, parent and depth arrays, Euler tour, LCA, `t.display()`, `display(root, kids: f)` |
 | Data structures | `dsu(n)` with `find` and `union`, Fenwick tree, segment tree, monotonic stack |
-| Grids | `grid(n, m, v)`, `g[p]` and `g.inside(p)` for a pair `p`, `neighbors4(p)`, `neighbors8(p)`, `manhattan(p, q)`, find a value, `g.show()` |
+| Grids | `grid(n, m, v)`, `g[p]` and `g.inside(p)` for a pair `p`, `neighbors4(p)`, `neighbors8(p)`, `manhattan(p, q)`, find a value, `g.display()` |
 | Search | `bsearch`, `lower_bound`, `upper_bound` |
 | Math | `min(a, b, ...)`, `max`, `abs`, `gcd`, `lcm`, `ceil_div`, `isqrt` (exact), `popcount`, `bit_length`, `pow_mod`, sieve, factorials and binomials |
 | Strings | prefix function, Z function, rolling hash |
@@ -744,12 +785,14 @@ A program can carry the examples from the problem statement as plain text, paste
 
 ## Memory, FFI and concurrency
 
-Memory is managed automatically, and the v1 runtime never frees. Short-lived contest programs rarely run long enough for that to matter, and a better collector can be swapped in later without changing the language.
+Memory is managed automatically by a garbage collector, with an arena mode for programs that build their data once. The choice affects speed and memory use, never what a program means.
 
 **Memory**
 
-- v1: a bump allocator that never frees.
-- Later options: Boehm GC or reference counting. Neither changes language semantics.
+- **Default: garbage collected.** The runtime has its own small mark-sweep collector that never moves objects. It can only run when the program allocates, and array access and arithmetic pay no collector cost.
+- **Arena mode.** `#mem arena` uses a growing bump allocator that never frees, which is fastest when a solution allocates once. `#mem gc` is the default. Like other program-level pragmas, these belong only to the main file.
+- **Parallel steps.** Nothing is collected during a `.par()` step, so memory it allocates can only be reclaimed after it finishes.
+- **Rollout.** Until the collector is implemented, every program runs in arena mode.
 - Value and reference rules are in the tuples, named tuples and records section.
 
 **C FFI.** Declared with `extern fn`, where annotations are required.
@@ -768,9 +811,11 @@ extern fn sqrt(x: float) -> float
 | Named tuple by value | C struct passed by value | v1; the generated C passes the struct, so the C compiler handles the ABI |
 | `big` | GMP's `mpz_t` layout, passed by pointer | v1 |
 
-**Strings at the boundary.** There is no separate C string type. A `str` is bytes plus a length with no terminator, and a slice shares memory with its source, so passing a `str` to an `extern fn` passes a NUL-terminated copy, and a `char*` returned as `str` is copied up to its NUL. The never-free arena makes the copies harmless. A string that contains a `\0` byte would be cut short in C, so passing one traps.
+**Strings at the boundary.** There is no separate C string type. A `str` is bytes plus a length with no terminator, and a slice shares memory with its source, so passing a `str` to an `extern fn` passes a NUL-terminated copy, and a `char*` returned as `str` is copied up to its NUL. The copies are collected like any other value. A string that contains a `\0` byte would be cut short in C, so passing one traps.
 
-**Concurrency.** Parallel iterators (`.par()`, see Iterators and chaining) are the only concurrency. There are no user-visible threads, locks or channels. Per-thread bump allocators keep the never-free arena simple; a garbage collector would make this harder.
+**Pointers held by C.** The collector cannot see memory owned by C, so C code must not keep a pointer to a Sherbet value after the `extern fn` returns.
+
+**Concurrency.** Parallel iterators (`.par()`, see Iterators and chaining) are the only concurrency. There are no user-visible threads, locks or channels. Workers allocate from their own blocks and collection runs only between parallel steps, so the collector never has to stop a running thread.
 
 ## Compiler architecture
 
@@ -789,8 +834,8 @@ The compiler is a short pipeline that emits one C file and lets a C compiler fin
 - **Implementation language:** Nim. Variant objects and `case` suit ASTs and type passes, and Nim itself compiles to C, so its output is a working reference for closures, name mangling and unwinding.
 - **C backend:** emit plain C and call a C compiler. No bindings are needed, the output is readable when debugging, and the C compiler handles the platform ABI, so FFI structs passed by value work in v1.
 - **C compiler:** `gcc` or `clang` at `-O2`, using GNU C extensions freely: `__builtin_*_overflow` for checked arithmetic, `unsigned __int128` for `Mod(m)` multiplication and Barrett reduction, statement expressions and computed `goto`. Portability to compilers without these extensions is not a goal. The runtime is built once and linked in.
-- **Avoiding C's undefined behavior.** Signed overflow is always checked or done in unsigned arithmetic, shift amounts are masked, and the C compiler runs with `-fwrapv -fno-strict-aliasing`. `#line` directives point C compiler errors, debuggers and sanitizers at the source file, and a debug build adds `-fsanitize=address,undefined`.
-- **Runtime in C:** hash map, fast stdin, the allocator and `setjmp`-based `try`, plus GMP for big numbers.
+- **Avoiding C's undefined behavior.** Signed overflow is always checked or done in unsigned arithmetic, shift amounts are range-checked, and the C compiler runs with `-fwrapv -fno-strict-aliasing`. `#line` directives point C compiler errors, debuggers and sanitizers at the source file, and a debug build adds `-fsanitize=address,undefined`.
+- **Runtime in C:** hash map, fast stdin, the allocator and garbage collector, and `setjmp`-based `try`, plus GMP for big numbers.
 - **Lowering:** variables are C locals; closures are an environment struct plus a function pointer; records are structs behind pointers, and named tuples are structs by value.
 
 **Milestones**

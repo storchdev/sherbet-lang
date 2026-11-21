@@ -30,6 +30,7 @@ The compiler is written in Nim and compiles one program, meaning a main file plu
 | `sherbet build day3.sher -o day3` | Compile to an executable |
 | `sherbet check day3.sher` | Parse and type-check only, no C compiler |
 | `sherbet emit day3.sher` | Print the generated C |
+| `sherbet emit --standalone day3.sher` | Print one self-contained C file for submitting to a judge |
 
 | Flag | Effect |
 | --- | --- |
@@ -77,7 +78,7 @@ The spec lists seven stages. In the code, inference and monomorphization are one
 ### 1. Source
 
 - **Test blocks.** Before lexing, scan lines for directives that are exactly `#in`, `#out` or `#end`, optionally followed by a path and a `//` comment. Their blocks are cut out and stored as test cases; the code lines are kept with their original line numbers so spans stay right.
-- **Pragmas.** `#default int = big`, `#pp(...)` and `#par(...)` are also whole lines, parsed here into a pragma record. In an imported file they are an error.
+- **Pragmas.** `#default int = big`, `#pp(...)`, `#par(...)` and `#mem arena` or `#mem gc` are also whole lines, parsed here into a pragma record. In an imported file they are an error.
 - **Files** are read as bytes. Source is UTF-8 but the lexer only cares about ASCII outside string literals.
 
 ### 2. Lexer
@@ -91,35 +92,17 @@ Produces tokens with spans: a file index and start and end byte offsets, end exc
 
   The parser skips `Newline` inside map and set literals, which handles multi-line `{ ... }` literals without the lexer knowing what kind of brace it is.
 - **Strings.** Interpolated strings are lexed into parts: literal text, then for each `{...}` a nested token stream for the expression and the raw text of the format spec after a top-level `:`. The lexer counts braces and skips nested strings so `"{m["a"]}"` works. `{{` and `}}` are literal braces. Raw strings and `"""` strings are handled here, including removing the common indentation.
-- **Numbers.** Underscores are dropped. A literal with `.` is fractional. One with an exponent and a whole value, like `1e9`, is a whole literal. Values are kept as exact strings until the type is known, since a literal may become `big`.
+- **Numbers.** Underscores are dropped. `0x`, `0b` and `0o` start a whole literal in that base, and a prefix with no digits, or a digit outside the base, is a lexer error. Otherwise, a literal with `.` is fractional. One with an exponent and a whole value, like `1e9`, is a whole literal. Values are kept as exact strings until the type is known, since a literal may become `big`.
 - **Bytes.** `'#'` is a byte literal with the usual escapes.
 - **Keywords:** `fn let if else while for in break continue return match try catch raise import as record type extern memo and or not is null true false`.
 - **Shorthand parameters.** `$` followed by digits is one token holding the index, as in `$0` and `$12`.
+- **Array views.** `.[` is one token and opens a bracket for newline tracking. The parser treats it as a postfix operator at the same level as indexing, so `a.[i..j].sum()` chains without parentheses.
 
 ### 3. Parser
 
 Recursive descent for statements and declarations, and a Pratt parser for expressions.
 
-- **Precedence.** The spec does not yet define operator precedence (see Spec gaps). The parser uses this table, lowest first, until the spec settles it:
-
-  | Level | Operators | Notes |
-  | --- | --- | --- |
-  | 2 | `or` | logical or, or an optional's default, by the left side's type |
-  | 3 | `and` | |
-  | 4 | `not` | prefix |
-  | 5 | `== != < > <= >= in` `not in` `is` | chained, as in Python |
-  | 6 | `\|` | |
-  | 7 | `^` | |
-  | 8 | `&` | |
-  | 9 | `<< >>` | |
-  | 10 | `.. ..=` | non-associative; either end may be missing |
-  | 11 | `+ -` | |
-  | 12 | `* / ~/ % @ \` | |
-  | 13 | unary `- ~` | |
-  | 14 | `**` | right-associative and binds tighter than unary minus on its left, so `-2**2` is `-4` |
-  | 16 | postfix `. () [] ! ?.` | |
-
-  Bare `try expr` and `raise expr` are prefix forms whose operand is parsed at level 3, so `try int(s) or 0` is `(try int(s)) or 0` as the spec requires.
+- **Precedence.** Binding powers follow the operator table in `spec.md`. `**` is right-associative and its right operand may start with a unary operator. Bare `try expr` and `raise expr` parse their operand at the `and` level, so `try int(s) or 0` is `(try int(s)) or 0`.
 - **Chained comparisons** become one node with a list of operands, so the lowering can evaluate each middle operand once.
 - **Which `{` is a block.** After an `if`, `while`, `for`, `match`, `try` or `catch` head, `else`, `fn ... =`, `=>` and a match arm's colon, `{` always starts a block. A map literal there needs parentheses, as in Rust. Anywhere else in an expression, the parser scans to the matching `}`: if it is empty, or its first item is followed by a `:` at the top level of the braces, it is a map literal; otherwise it is a shorthand closure.
 - **Blocks.** A block node holds its statements and an optional final expression, which is its value. A trailing `;` after that expression does not remove it, as the spec requires.
@@ -179,7 +162,7 @@ This is the largest stage. It checks function bodies and creates specialized cop
 
 Runs on the typed, specialized program.
 
-- **`.par()` rules.** A bottom-up pass over the call graph computes, for each instance, whether it writes to globals, writes to captured variables, or mutates any value it did not allocate itself. Values are tracked by origin: allocated in this call, or "from outside" (parameters, captures, globals, anything loaded from those). Mutating a value from outside is a write. Recursion is handled by iterating to a fixed point. A parallel step whose lambda writes is an error that points at the write, through the call chain. `print`, `put` and `read_` are marked as writes to stdout or stdin, and `dbg`, `pp` and `eprint` are allowed.
+- **`.par()` rules.** A bottom-up pass over the call graph computes, for each instance, whether it writes to globals, writes to captured variables, or mutates any value it did not allocate itself. Values are tracked by origin: allocated in this call, or "from outside" (parameters, captures, globals, anything loaded from those). Mutating a value from outside is a write, and a view has the same origin as its source. Recursion is handled by iterating to a fixed point. A parallel step whose lambda writes is an error that points at the write, through the call chain. `print`, `put` and `read_` are marked as writes to stdout or stdin, and `dbg`, `pp` and `eprint` are allowed.
 - **Fusion eligibility** is the same summary: no I/O and no writes to captured variables.
 - **Other checks:** unused variables (warning), `[[0] * m] * n` (error), overriding `==` without `hash` (error), and `Mod(m)` modulus rules.
 
@@ -214,6 +197,7 @@ Turns typed instances into a C-shaped tree: statements, expressions, and declara
 - One `.c` file: `#include "sherbetrt.h"`, type declarations in dependency order, function prototypes, then globals and functions, with `#line` directives pointing at `.sher` source lines.
 - **Mangling.** Every instance gets a readable name from its module, function name and a short hash of its type key, like `geom_dist_3fa2`. Readable names make `sherbet emit` and gdb usable.
 - **Compile.** `gcc -std=gnu11 -O2 -fwrapv -fno-strict-aliasing -w`, then link with `libsherbetrt.a -lgmp -lpthread -lm`. Warnings are off because generated code is not the user's. A C compiler error is always a bug in `sherbet`; it is reported as an internal error with the path to the kept C file.
+- **Standalone output.** `--standalone` inlines only the runtime parts the program reaches, drops `#line`, and runs `.par()` serially, since judges often restrict threads. Inlining only reachable code also keeps output within judges' source size limits. A program that needs GMP is a compile error in this mode, since most judges do not provide it and contest answers rarely exceed `i64`.
 
 ## Value representation in C
 
@@ -231,18 +215,27 @@ Turns typed instances into a C-shaped tree: statements, expressions, and declara
 | `T?` for records and variants | Nullable pointer |
 | Other `T?` | `struct { bool has; T val; }` |
 | Function value | `struct { void *fn; void *env; }` |
-| `big`, `rat`, `bigfloat` | Pointer to an arena-allocated `mpz_t`, `mpq_t` or `mpf_t` |
+| `big`, `rat`, `bigfloat` | Pointer to a runtime-allocated `mpz_t`, `mpq_t` or `mpf_t` |
 | `Mod(m)` | `uint64_t`; the modulus and Barrett constant live in globals for that type |
 | unit | No value; `void` in returns |
 
 - Wrapping types (`wrap8` to `wrap64`) are plain unsigned integers.
+- **Membership.** The checker resolves `x in c` to the `contains` overload for `c`'s type, so builtin and user types share one path. Each operand is evaluated once, including in chained comparisons. Range `contains` compares bounds and never builds an iterator.
+- **View assignment.** `a.[i..j] = b` is its own assignment target. It checks the length and copies with `memmove`, so overlapping ranges work. Other compound assignments to a view are compile errors.
+- **Array views** use the normal `[T]` header with `data` pointing into the source buffer and `cap` set to 0, so indexing has no extra cost and growth reaches the slow path, which traps. Old array buffers are never reused after growth, so a view or generated loop holding the old data pointer stays memory-safe. `--debug` builds also store the source and its buffer generation in the view, to trap on stale use.
 - Equality, hashing, ordering and printing for every type are generated per type by the compiler, unless a hook is defined.
 
 ## Runtime
 
 C, compiled once, with a header the generated code includes. Small enough to read in an afternoon.
 
-- **Allocator.** One bump allocator per thread, in large blocks from `mmap`, never freed. GMP is pointed at it with `mp_set_memory_functions`.
+- **Allocation calls.** There are two entry points in both memory modes: one for objects that may contain pointers, which takes a type descriptor, and one for pointer-free data such as `[int]`, string bytes and GMP limbs. GMP is pointed at the runtime with `mp_set_memory_functions`.
+- **Arena mode.** One bump allocator per thread, in large blocks from `mmap`, never freed.
+- **Garbage collector.** A non-moving, stop-the-world mark-sweep collector with size-class blocks, a separate path for large objects, side mark bitmaps, an explicit mark stack and lazy sweeping. A collection starts when the heap has doubled since the last collection's live size.
+- **GC roots.** A compiler-emitted table of globals, registers spilled with `setjmp`, a conservative scan of the active stack, and runtime-owned roots such as `.par()` result slots and per-thread memo tables.
+- **GC pointers.** Heap objects are scanned exactly from their type descriptors, and pointer-free objects are skipped. A stack word or heap pointer field counts if it points anywhere inside an object, since `str` slices and optimized C can hold interior pointers. Allocations get one extra byte so a one-past-the-end pointer still lands inside the object. Addresses outside the GC heap, such as static variants and the input buffer, are ignored.
+- **GC and threads.** Collection runs only outside `.par()`, after workers have finished a step.
+- **GC under `--debug`.** The stack scanner must not be instrumented by ASan, and ASan's fake stack must stay off, because it would move locals out of the scanned stack.
 - **Stack.** `main` starts the program on a thread with a large stack (1 GB reserved, committed on demand) and installs a `sigaltstack` handler that reports `stack overflow`.
 - **Input.** Reads all of stdin into one buffer at the first read, then parses tokens and lines from memory, with the `read_line` rule from the spec.
 - **Output.** One stdout buffer, flushed at exit, on `flush()`, and before a trap message. stderr is unbuffered.
@@ -286,7 +279,7 @@ The language's own test blocks do most of the work.
 
 Each milestone ends with tests passing. The milestone numbers match the spec's.
 
-1. **Ints, floats, functions, control flow, arrays and strings.** Source, lexer, parser, resolver, and a first infer pass with no generics; emit C; runtime allocator, traps, output and basic strings. First target: a program that reads numbers and prints their sum, through gcc.
+1. **Ints, floats, functions, control flow, arrays and strings.** Source, lexer, parser, resolver, and a first infer pass with no generics; emit C; runtime bump allocator with both allocation calls, traps, output and basic strings. First target: a program that reads numbers and prints their sum, through gcc.
 2. **Inference with implicit generics and monomorphization.** The instantiation worklist, number defaulting, error chains.
 3. **Tuples, records, variants, `match`, closures, maps, sets, uniform call syntax, optionals and `try`.** Hash tables, closure conversion, captures and boxing, optional flags and narrowing, `rt_try`, overloads and variant dispatch.
 4. **Input, buffered output, formatting, printing, `dbg`, `pp`, and `sherbet test`.** The runtime formatter, format string checking and test blocks.
@@ -294,14 +287,10 @@ Each milestone ends with tests passing. The milestone numbers match the spec's.
 6. **`big`, `Mod`, `rat`, matrices and the solver.** GMP glue, Barrett reduction.
 7. **FFI, fusion, then `.par()`.** The write analysis in the check stage, the thread pool, chunked lowering.
 
+**Memory rollout.** Milestone 1 ships only the arena. Old buffers are not reused after growth: doubling limits the arena's waste to about one extra copy of the final array, and the collector reclaims them once nothing points in. Once real AoC solutions run, add the collector as the default and benchmark it against the arena on an int-array DP, a grid simulation that copies each step, and a binary-trees allocation test.
+
 ## Spec gaps
 
 Decisions the compiler needs that the spec does not make yet. Each should be settled in `spec.md` before or during the milestone that needs it.
 
-- **Operator precedence.** The parser uses the table above for now. The spec should include a table. Questions: where `..` sits relative to arithmetic and comparison, whether `-2**2` is `-4` as in Python, and where `is` and `in` bind.
-- **Sort stability.** The plan is a stable sort, as in Python; the spec should say so, since `sort_by` on ties is common in AoC.
-- **Map and set iteration order.** Printing is sorted, but `for (k, v) in m` has no stated order. The plan is insertion order, as in Python, which also makes `.par()` over a map deterministic.
-- **Shifts.** What `x << 64`, a negative shift amount and a left shift that overflows do. Trapping, like other overflow, fits the spec best.
-- **Integer `**` overflow and `int(s)` failures.** Both are presumably traps of kind `"overflow"` and a parse error kind; the parse failure kind is not in the spec's list.
-- **Map literals in conditions.** `{` after an `if` or `while` condition starts the block, so a map literal there needs parentheses. Worth one line in the spec.
-- **`try` with `return`, `break` and `continue`** inside its body: assumed to work as if `try` were an ordinary block.
+None are open right now.
