@@ -1,7 +1,8 @@
-# Cake language compiler
-## **C**ake: **A** **K**leen **E**xperience
+# Sherbet language compiler
 
-a compiler i'm building for fun. it has insanely clean syntax, features i wish i had in other languages, and is easy to code in. one might even call it a piece of cake. specifically engineered to destroy advent of code / leetcode / codeforces style problems.
+a compiler i'm building for fun. it has insanely clean syntax, features i wish i had in other languages, and is easy to code in. one might even say it is as fun as eating sherbet. sherbet is specifically engineered to destroy advent of code / leetcode / codeforces style problems.
+
+originally named cake with a fancy acronym but sherbet is a better name. and who needs to say that it needs to stand for anything?
 
 spec.md and compiler.md will continue to be updated throughout.
 
