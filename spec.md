@@ -64,7 +64,20 @@ outer: for r in 0..n {    // labeled loop
 - **Bindings:** `x = expr` declares `x` the first time and reassigns it afterwards. Assigning to a name that exists in an enclosing scope of the same function, including one captured by a lambda, reassigns it; otherwise it declares a new local. `let x = expr` is optional and always creates a new binding in the current scope, which is how to shadow. Destructuring needs no parentheses: `a, b = b, a + b` evaluates the right side first. The compiler warns about a variable that is assigned but never read, which catches typos. There is no `const`.
 - **Compound assignment** exists for every arithmetic and bit operator: `+= -= *= /= ~/= %= **= @= &= |= ^= <<= >>=`. `x op= e` evaluates `x`'s target once and follows the same rules as `x = x op e`, so `flag &= ok` works on a `bool` and `mask <<= 1` traps like any other shift.
 - **`=` and `:`.** `=` gives a name its value: assignments, `fn` and `type` definitions, parameter defaults and `#default`. `:` labels something without creating or changing a variable: type annotations, map entries, named arguments and fields, match arms and loop labels. So `fn f(k: int = 1)` declares a type and a default, and `f(k: 2)` names an argument.
-- **Control flow:** `if`/`else`, `match` and `try`/`catch` are expressions; `while`, `for x in iterable`, `break` and `continue` are statements. `for` destructures: `for (u, v) in edges`, `for (k, v) in m`, `for (i, x) in a.enumerate()`. Each iteration gets a fresh loop variable, so a closure made inside the loop keeps that iteration's value, not the last one.
+- **Control flow:** `if`/`else`, `match` and `try`/`catch` are expressions; `while`, `for x in iterable`, `break` and `continue` are statements. `for` takes a pattern, and a top-level comma adds an index; see Loop forms. Each iteration gets a fresh loop variable, so a closure made inside the loop keeps that iteration's value, not the last one.
+- **Loop forms.** A top-level comma adds an index counted from 0, and parentheses destructure the element:
+  ```
+  for x in arr
+  for i, x in arr            // index, element
+  for (u, v) in edges        // destructure the element
+  for i, (u, v) in edges     // both
+  for k, v in m              // key, value
+  for i, k, v in m           // index, key, value
+  for k, (a, b) in m         // patterns work in any position
+  ```
+  - `for u, v in edges` over tuple elements is a compile error with a hint to write `for (u, v)` or `for i, (u, v)`, since the index reading would silently compile in code like `adj[u].push(v)`. To keep a whole tuple beside its index, use `for (i, p) in points.enumerate()`.
+  - A map loop takes exactly two or three top-level names. `for x in m` and `for (k, v) in m` are compile errors whose hint lists `for k, v in m`, `m.keys()` and `m.values()`.
+  - Three top-level names work only on maps.
 - **Labeled loops:** `outer: for ...` names a loop, and `break outer` or `continue outer` acts on it from any depth.
 - **Boolean operators are words:** `and`, `or` and `not`, as in Python, with `not in` and `is not` as the negated forms. `not` binds looser than comparisons, so `not x == y` and `not a in b` need no parentheses. There is no `&&`, `||` or prefix `!`; writing one is a compile error with a hint, and `!x` points to `~x` or `not x`. `!` appears only in `!=` and in `x!`, which unwraps an optional (see Errors and optionals).
 - **`~ & | ^` follow the operand type.** On integers they are bitwise. On `bool`, `~x` is a tight negation of one value, so `~a and b` is `(not a) and b`, and `& | ^` are logical and, or and xor. `not` negates everything up to the next `and` or `or`. `&` and `|` always evaluate both sides, so a guard such as `i < n and a[i]` must use `and`. Mixing `bool` with an integer, or shifting a `bool`, is a compile error.
@@ -248,6 +261,7 @@ Strings, arrays, maps and sets are built in, homogeneous, and hashable or compar
   - Ranges, including open and stepped ones, compare against their bounds in constant time, so `x in 0..n` never loops.
   - Lazy chains run until the first match. A miss on an infinite chain never finishes.
   - A record or variant supports both by defining `fn contains(c: Bag, x)`. On any other type, or with an `x` of the wrong type, it is a compile error.
+- **`m.keys()` and `m.values()`** return arrays in iteration order. Chains on a map, such as `m.filter { ... }`, still receive key-value pairs.
 - **Maps and sets iterate in insertion order.** Updating a key keeps its position, removing one keeps the order of the rest, and adding it back puts it last. Printing still sorts.
 - **Negative indices are literal only.** `a[-1]` and `a[-2..]` count from the end, but a computed index that comes out negative traps, so `dp[i - 1]` at `i = 0` is an error instead of a silent read of the last element.
 - **A lookup that can miss returns an optional:** `m.get(k)`, `s.find(x)`, `a.find(pred)`, `a.position(pred)` and `bsearch`. `min` and `max` of an empty collection trap, as in Python.
@@ -465,7 +479,7 @@ type Instr =                            // long types: one variant per line
 
 - **Each variant is a record.** It is constructed, mutated, compared, hashed and printed exactly like one, with field types inferred. Variants order by declaration order, then by fields. A variant with no fields, like `Halt`, is a single shared value. A `type` needs at least two variants; a single one is a `record`.
 - **Shared fields.** If every variant of a type has a field with the same name, it can be used on the type itself without narrowing: with `type Shape = Circle(color, c, r) | Rect(color, corner, w, h)`, `s.color` works on any `Shape`, and so do `s.color = "red"` and `s.with(color: "red")`. The field's types must unify across variants. A field that some variant lacks is a compile error that names that variant. Fields may sit at different positions; the compiler branches on the tag when they do, and uses a plain load when they share a position.
-- **`x is Add`** tests the variant. In an `if`, `while`, `and` or `or`, it narrows a local the same way a `null` check does, so the variant's fields can be used directly. `x is not Add` is its negation and narrows on the path where it is false. `is` takes only a variant name; `x is int` is a compile error with a hint to use an overload.
+- **`x is Add`** tests the variant. In an `if`, `while`, `and` or `or`, it narrows a local the same way a `null` check does, so the variant's fields can be used directly. `x is not Add` is its negation and narrows on the path where it is false. The right side is a variant name or a variant, record, tuple or array pattern; `x is int` is a compile error with a hint to use an overload.
 - **No exhaustiveness checking in `match`.** A `match` that forgets a variant fails at run time, like every other mistake. Overloads on variants are checked: a call that leaves a variant uncovered is a compile error; see Overloads on variants.
 
 ## Pattern matching
@@ -489,13 +503,26 @@ fn eval(e) = match e {
 d = match m.get(k) { null: 0; v if v > 0: v; _: -1 }
 ```
 
-- **Patterns:** literals (numbers, strings, `'#'` bytes), names that bind, `_`, tuples, arrays of a fixed length with an optional `..rest`, variants such as `Add(l, r)`, and `null`. They nest.
+- **Patterns:** literals (numbers, strings, `'#'` bytes), names that bind, `_`, tuples, arrays of a fixed length with an optional `..rest`, records such as `Point(x, y)`, variants such as `Add(l, r)`, and `null`. They nest.
+- **Each shape has its own pattern.** `(a, b)` matches a tuple, including a named tuple by position, `[a, b]` an array, and `Point(x, y)` a record or variant. Using the wrong one is a compile error, so `(a, b)` never converts an array. Tuple and record patterns have one possible shape, so assigning to one traps only if a pattern nested inside it can fail, as in `(1, b) = p`.
 - **Arm syntax** is `pattern: body`, like Python's `case pattern:` without the keyword. The colon cannot be misread: inside `match { }` there are only arms, and a colon inside a pattern's parentheses, as in `Rect(w: x)`, belongs to that pattern. A `match` body looks like a map literal on purpose, since it reads as a lookup table.
 - **Guards:** `pat if cond: ...` adds a condition.
 - **Arms** are tried in order and separated by newlines or `;`. An arm's body is an expression or a braced block. A block body ends the arm at its closing `}`, so the next arm can follow on the same line with no `;`: `match x { 0: { a += 1; b = 0 } 1: b += 1; _: {} }`.
 - **`{` after an arm's colon always starts a block**, as after `=>` or `fn ... =`. An arm that returns a map literal wraps it in parentheses: `k: ({1: 2})`.
 - **As an expression,** the arm bodies unify like `if` branches. As a statement, their values are ignored.
 - **No match** traps with kind `"match"`. Add `_:` to handle the rest.
+
+**Patterns outside `match`**
+
+```
+if e is Add(l, r) { l + r }                 // safe: tests, then binds
+if line.words() is ["inc", r] { regs[r] += 1 }
+Add(l, r) = e                               // asserts: traps if e is not an Add
+[cmd, arg] = line.words()                   // traps on the wrong length
+```
+
+- **`x is pattern`** is `true` when the value matches. Its names are bound in the rest of an `and` chain and on the true path, so `if e is Add(l, r) and l > 0 { ... }` works. A pattern under `or` or `is not` cannot bind names.
+- **Assigning to a pattern** takes the value apart or traps with kind `"match"`, like `x!` does for `null`. Its names follow the normal assignment rule, and `let` makes them all new bindings.
 
 ## Functions, closures and overloading
 

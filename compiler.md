@@ -108,10 +108,12 @@ Recursive descent for statements and declarations, and a Pratt parser for expres
 - **Blocks.** A block node holds its statements and an optional final expression, which is its value. A trailing `;` after that expression does not remove it, as the spec requires.
 - **Lambdas.** At `(` in expression position, the parser scans ahead to the matching `)`. If `=>`, or `-> Type =>`, follows, the parentheses are a parameter list; otherwise they are a parenthesized expression or tuple. A name followed by `=>` is a one-parameter lambda. The body is a full expression at the lowest precedence, so `x => a or b` takes all of `a or b`.
 - **Statements vs. expressions.** `if`, `match` and `try` parse as expressions everywhere. A statement that starts with one of the keywords in the spec's rule and ends with `}` needs no separator before the next statement.
-- **Assignment.** `x = e`, `a, b = e`, `x += e` and `let x = e` are separate node kinds. The parser does not decide whether `x = e` declares; the resolver does.
+- **Assignment.** `x = e`, `a, b = e`, `x += e` and `let x = e` are separate node kinds. The parser does not decide whether `x = e` declares; the resolver does. A left side shaped like a record, variant or array is parsed as an expression, then converted to a pattern when `=` follows.
 - **Shorthand closures.** A closure node is pushed on a stack while its body is parsed. Each `$n` is attached to the top closure, which records the highest index; that sets the parameter count. A `$n` with an empty stack is a parse error. Braces of `if`, `match` and the like do not push, so `$0` inside them belongs to the closure around them.
 - **Trailing closures.** After a call's `)`, or after `.name` with no parentheses, a `{` on the same line is parsed as a closure and appended as the last argument. The parser keeps a flag while parsing an `if`, `while`, `for` or `match` head that turns this off, so the `{` there starts the body.
 - **Labels.** `name:` at the start of a statement followed by `for` or `while` is a label.
+- **`for` heads** hold one to three comma-separated patterns. The checker assigns their roles from the iterable's type and reports the tuple and map loop errors.
+- **`is`** parses a pattern on its right. Its bindings are scoped like narrowing: the rest of an `and` chain and the true path.
 - **Errors.** The parser stops at the first syntax error in a file. Recovery is not worth its complexity for files this size.
 
 ### 4. AST
