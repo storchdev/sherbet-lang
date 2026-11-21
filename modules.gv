@@ -9,57 +9,54 @@ digraph modules {
   edge [color="#555555"];
 
   // ---- driver ----
-  sherbet [label="sherbet.nim\lcommand line, runs the stages in order\l"];
+  sherbet [style=dashed, label="sherbet.nim\lcommand line, runs the stages in order\lowns the FileList and DiagSink\l"];
 
-  // ---- stages: may take DriverCtx ----
+  // ---- stages: receive only the FileList and/or DiagSink they need ----
   subgraph cluster_stages {
-    label="stages (above ctx: may use DriverCtx)";
+    label="stages (passed FileList and/or DiagSink by the driver)";
     style=dashed; fontname="monospace"; fontsize=10;
     lexer   [style=dashed, label="lexer.nim\lToken, lex\l"];
     parser  [style=dashed, label="parser.nim\lrecursive descent + Pratt\l"];
-    resolve [style=dashed, label="resolve.nim\limports, scopes, names\l(ctx.files.addFile for imports)\l"];
+    resolve [style=dashed, label="resolve.nim\limports, scopes, names\l(files.addFile for imports)\l"];
     infer   [style=dashed, label="infer.nim\linference, overloads,\lunification (?)\l"];
     check   [style=dashed, label="check.nim\l.par() rules, unused vars\l"];
     lower   [style=dashed, label="lower.nim\ltyped AST -> C-shaped tree\l"];
-    emitc   [style=dashed, label="emitc.nim\lC text, mangling, #line\l"];
+    emitc   [style=dashed, label="emitc.nim\lC text, mangling, #line\l(files for #line)\l"];
     cc      [style=dashed, label="cc.nim\lrun gcc/clang\l"];
   }
 
-  // ---- plain data: no ctx, no diag ----
+  // ---- plain data: no diag ----
   subgraph cluster_data {
-    label="plain data (no ctx)";
+    label="plain data (no diag)";
     style=dashed; fontname="monospace"; fontsize=10;
     ast   [style=dashed, label="ast.nim\lAST node types\l"];
     types [style=dashed, label="types.nim\ltype representation\l"];
   }
 
-  // ---- core: below ctx, never sees DriverCtx ----
-  ctx    [style=dashed, label="ctx.nim\lDriverCtx = files + diags (+ pragmas, options later)\lconstructor only; calls go through ctx.files / ctx.diags\l"];
-  source [label="source.nim\l#in/#out extraction, pragmas\l(takes files + diagnostics as params)\l"];
-  diag   [label="diag.nim\lDiagnostic, severity, diagnostic list type\lreportError/Warning, hasErrors (on the list)\lnewNote(span, msg)\lemitDiagnostics(files, diags, out)\l"];
-  span   [style=dashed, label="span.nim\lSpan, initSpan, AugFile, file list type\laddFile, getSpanPos (on the file list)\l"];
+  // ---- core ----
+  source [style=dashed, label="source.nim\l#in/#out extraction, pragmas\l(takes FileList + DiagSink as params)\l"];
+  diag   [label="diag.nim\lDiagnostic, severity, DiagSink\lreportError/Warning, hasErrors (on DiagSink)\lnewNote(span, msg)\lemitDiagnostics(sink, files, out)\l"];
+  span   [label="span.nim\lSpan, initSpan, SherFile, FileList\laddFile, getSpanPos (on FileList)\l"];
 
   // ---- edges ----
   // sherbet imports every stage; drawn as one edge into the cluster
   sherbet -> resolve [lhead=cluster_stages, label=" every stage", fontname="monospace", fontsize=9];
-  sherbet -> ctx;
+  sherbet -> {source diag span};
 
-  lexer   -> ctx;
-  parser  -> {ctx lexer ast};
-  resolve -> {ctx ast};
-  infer   -> {ctx ast types};
-  check   -> {ctx ast types};
-  lower   -> {ctx ast types};
-  emitc   -> {ctx lower};
-  cc      -> ctx;
+  lexer   -> {diag span};
+  parser  -> {diag lexer ast};
+  resolve -> {diag span ast};
+  infer   -> {diag ast types};
+  check   -> {diag ast types};
+  lower   -> {ast types};
+  emitc   -> {span lower};
 
   ast   -> span;
   types -> span;
 
-  ctx    -> {source diag span};
   source -> {diag span};
   diag   -> span;
 
   // ---- rules ----
-  rules [shape=note, label="rules\l- arrows only point down: never import a module above you\l- every proc takes the smallest thing it needs, and lives next to that type\l- below ctx: never see DriverCtx\l- above ctx: may take DriverCtx\l- ast/types stay plain data so anything can import them\l"];
+  rules [shape=note, label="rules\l- arrows only point down: never import a module above you\l- every proc takes the smallest thing it needs, and lives next to that type\l- only the driver holds both FileList and DiagSink for the whole run\l- span never imports diag\l- ast/types stay plain data so anything can import them\l"];
 }
