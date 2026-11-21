@@ -1,4 +1,5 @@
 import diag
+import span
 import std/unittest
 import std/streams
 import std/os
@@ -22,41 +23,44 @@ suite "diagnostics":
 
   test "fixtures match":
     for row in table:
-      let driver = diag.DriverCtx()
-      let _ = driver.addFile(fixtureDir & row[0] & ".sher")
+      let flist = span.initFileList()
+      let _ = flist.addFile(fixtureDir & row[0] & ".sher")
       let tup = row[2]
-      let span = diag.initSpan(tup[0], tup[1], tup[2])
+      let span = span.initSpan(tup[0], tup[1], tup[2])
+      let sink = diag.initDiagnosticSink()
+
       if row[1] == diag.dsError:
-        driver.reportError(span, row[3], @[], @[])
+        sink.reportError(span, row[3], @[], @[])
       else:
-        driver.reportWarning(span, row[3], @[], @[])
+        sink.reportWarning(span, row[3], @[], @[])
 
       let expected = readFile(fixtureDir & row[0] & ".expected")
-      let tmpFile = newStringStream()
-      driver.emitDiagnostics(tmpFile)
-      tmpFile.setPosition(0)
+      let tmpBuf = newStringStream()
+      sink.emitDiagnostics(flist, tmpBuf)
+      tmpBuf.setPosition(0)
 
-      check expected == tmpFile.readAll()
+      check expected == tmpBuf.readAll()
 
   test "note works":
-    let driver = diag.DriverCtx()
-    let _ = driver.addFile(fixtureDir & "note_main.sher")
-    let _ = driver.addFile(fixtureDir & "note_geom.sher")
+    let flist = span.initFileList()
+    let sink = diag.initDiagnosticSink()
+    let _ = flist.addFile(fixtureDir & "note_main.sher")
+    let _ = flist.addFile(fixtureDir & "note_geom.sher")
     let note =
-      diag.newNote(diag.initSpan(1, 3, 7), "candidate: fn dist(a: Point, b: Point)")
-    driver.reportError(
-      diag.initSpan(0, 17, 29),
+      diag.newNote(span.initSpan(1, 3, 7), "candidate: fn dist(a: Point, b: Point)")
+    sink.reportError(
+      span.initSpan(0, 17, 29),
       "no overload of `dist` matches (Point, str)",
       @[note],
       @["the second argument must be a Point"],
     )
 
     let expected = readFile(fixtureDir & "note_and_hint.expected")
-    let tmpFile = newStringStream()
-    driver.emitDiagnostics(tmpFile)
-    tmpFile.setPosition(0)
+    let tmpBuf = newStringStream()
+    sink.emitDiagnostics(flist, tmpBuf)
+    tmpBuf.setPosition(0)
 
-    check expected == tmpFile.readAll()
+    check expected == tmpBuf.readAll()
 
 # | mid_first_line | mid_first_line.sher | error | 0, 4, 5 | `test message` | first line, middle |
 # | middle_line | middle_line.sher | error | 0, 10, 13 | `test message` | a line in the middle of the file |
