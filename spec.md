@@ -62,10 +62,12 @@ outer: for r in 0..n {    // labeled loop
 - **Semicolons and line breaks.** `;` ends a statement anywhere a newline would, so one-liners work: `for i in 0..n { s += a[i]; t ^= a[i] }` and `fn f(x) = { y = x * 2; y + 1 }`. A trailing `;` is allowed and changes nothing, so `{ print(x); 0; }` still yields `0`. A statement that starts with `if`, `for`, `while`, `match`, `try` or `fn` and ends with its closing `}` needs no `;` before the next statement on the same line: `for x in a { s += x } print(s)`. Any other statement, such as an assignment whose value is an `if`, still needs one. A newline does not end a statement inside `( )` or `[ ]`, after a binary operator, `=`, `=>` or comma, or before a line that starts with `.`, so chains and long expressions can be broken across lines.
 - **Trailing separators.** Every comma-separated list allows a trailing comma: array, map and set literals, tuples, call arguments, parameter lists, record and variant fields, patterns, type syntax and import selectors such as `import geom.{dist, Point,}`. This makes one-item-per-line lists easy to reorder. A trailing comma never changes meaning, and there are no one-element tuples, so `(x,)` is a compile error rather than Python's 1-tuple. `match` arms separated by `;` allow a trailing `;` too, and a variant list may start with `|`.
 - **Bindings:** `x = expr` declares `x` the first time and reassigns it afterwards. Assigning to a name that exists in an enclosing scope of the same function, including one captured by a lambda, reassigns it; otherwise it declares a new local. `let x = expr` is optional and always creates a new binding in the current scope, which is how to shadow. Destructuring needs no parentheses: `a, b = b, a + b` evaluates the right side first. The compiler warns about a variable that is assigned but never read, which catches typos. There is no `const`.
+- **Compound assignment** exists for every arithmetic and bit operator: `+= -= *= /= ~/= %= **= @= &= |= ^= <<= >>=`. `x op= e` evaluates `x`'s target once and follows the same rules as `x = x op e`, so `flag &= ok` works on a `bool` and `mask <<= 1` traps like any other shift.
 - **`=` and `:`.** `=` gives a name its value: assignments, `fn` and `type` definitions, parameter defaults and `#default`. `:` labels something without creating or changing a variable: type annotations, map entries, named arguments and fields, match arms and loop labels. So `fn f(k: int = 1)` declares a type and a default, and `f(k: 2)` names an argument.
 - **Control flow:** `if`/`else`, `match` and `try`/`catch` are expressions; `while`, `for x in iterable`, `break` and `continue` are statements. `for` destructures: `for (u, v) in edges`, `for (k, v) in m`, `for (i, x) in a.enumerate()`. Each iteration gets a fresh loop variable, so a closure made inside the loop keeps that iteration's value, not the last one.
 - **Labeled loops:** `outer: for ...` names a loop, and `break outer` or `continue outer` acts on it from any depth.
-- **Boolean operators are words:** `and`, `or` and `not`, as in Python, with `not in` for non-membership. There is no `&&`, `||` or prefix `!`; writing one is a compile error with a hint. `!` appears only in `!=` and in `x!`, which unwraps an optional (see Errors and optionals). `& | ^ ~` are bitwise.
+- **Boolean operators are words:** `and`, `or` and `not`, as in Python, with `not in` and `is not` as the negated forms. `not` binds looser than comparisons, so `not x == y` and `not a in b` need no parentheses. There is no `&&`, `||` or prefix `!`; writing one is a compile error with a hint, and `!x` points to `~x` or `not x`. `!` appears only in `!=` and in `x!`, which unwraps an optional (see Errors and optionals).
+- **`~ & | ^` follow the operand type.** On integers they are bitwise. On `bool`, `~x` is a tight negation of one value, so `~a and b` is `(not a) and b`, and `& | ^` are logical and, or and xor. `not` negates everything up to the next `and` or `or`. `&` and `|` always evaluate both sides, so a guard such as `i < n and a[i]` must use `and`. Mixing `bool` with an integer, or shifting a `bool`, is a compile error.
 - **Chained comparisons:** `0 <= r < n` means `0 <= r and r < n`, with `r` evaluated once.
 - **Ranges:** `a..b` excludes `b`, `a..=b` includes it, and both are lazy. `a..` has no end, so `for t in 1.. { ... }` loops until `break`. Slices may leave out either end: `a[i..]`, `a[..j]`. `..` binds looser than arithmetic and bit operators, so `a..b+1` is `a..(b+1)` and `0..1<<n` loops over every bitmask.
 - **Operator precedence,** lowest first:
@@ -75,7 +77,7 @@ outer: for r in 0..n {    // labeled loop
   | `or` | Logical or, or an optional's default |
   | `and` | |
   | `not` | Prefix |
-  | `== != < > <= >= in` `not in` `is` | Chained |
+  | `== != < > <= >= in` `not in` `is` `is not` | Chained, except `is` and `is not` |
   | `.. ..=` | Non-associative; either end may be missing |
   | `\|` | |
   | `^` | |
@@ -281,7 +283,7 @@ Every string literal interpolates, like a Python f-string with no `f` prefix. Th
 "{x=}"               // x=5, for debugging
 "{xs:.2}"            // [1.00, 2.50]: a spec on a container applies to each element
 "{row:display}"         // #..#.: bytes as text
-"{state:pp}"         // pretty-printed
+"{state:pretty}"     // pretty-printed
 "{grid:display i4}"     // bytes as text, pretty-printed with indent 4
 "{x:.{p}}"           // precision from a variable
 r"\d+{2}"            // raw string: no interpolation, no escapes
@@ -295,7 +297,7 @@ A spec is a list of words separated by spaces. Each word sets one thing and can 
 ```
 {n:r3 fill0}            {n:fill0 r3}          // the same
 {x:.2 r10}              {n:hex}               {n:, r12}
-{grid:display pp}          {grid:display indent4 many}
+{grid:display pretty}          {grid:display indent4 many}
 {n:b r8 f0}             {n:bin r8 fill0}      // the same: words are prefix-matched
 {n:base36}              {n:b7 r5 f0}          // any base; b7 is base7
 ```
@@ -310,7 +312,7 @@ A spec is a list of words separated by spaces. Each word sets one thing and can 
 | `sci` | `{x:.2 sci}` | `3.14e+00` | Scientific notation, only when asked for |
 | `,` | `{n:,}` | `1,234,567` | Thousands separators |
 | `display` | `{b:display}`, `{row:display}`, `{grid:display}` | `#`, `#..#.`, lines of text | The drawn form, by calling `display(x)`: bytes as characters, plus grids, trees, graphs and any type with a `display` overload |
-| `pp` | `{x:pp}` | (multi-line) | The pretty form |
+| `pretty` | `{x:pretty}`, `{x:p}` | (multi-line) | The pretty form |
 | `wrapN` `indentN` `maxN` | `{grid:display i4}` | (multi-line) | Pretty-print options; any of them turns on the pretty form; see Printing and debugging |
 | `one` `many` `auto` | `{state:many}` | (multi-line) | The `lines` option: never break, always break, or break when too wide |
 | `=` after the expression | `{x=}`, `{x=:.2}` | `x=5`, `x=3.14` | Prints the expression's text, then its value |
@@ -360,20 +362,20 @@ Every value prints the way it would be written in code, so what you read back is
 ```
 dbg(x)                      // [line 12] x = 5, and returns x
 total = xs.map(f).dbg().sum()   // [line 13] xs.map(f) = [...], mid-chain
-pp(state)                   // pretty-printed
-pp(row, "display", lines: Many)  // element spec, then options
+dbg(state, max: 20)         // takes the pretty-print options
+dbg(row, "display", lines: Many)  // element spec, then options
 eprint("dist", d)           // print, but to stderr
 ```
 
-- **`dbg(x)`** prints the line number, the expression's source text and its value, then returns the value unchanged, so it can be dropped into any expression or chain. Rust's `dbg!` is the model.
-- **`pp(x)`** prints on one line if it fits; otherwise it breaks the value across lines, one element or field per line. An optional second argument is an element spec, as in `{}`.
+- **`dbg(x)`** prints the line number, the expression's source text and its value, then returns the value unchanged, so it can be dropped into any expression or chain. Rust's `dbg!` is the model. The value is pretty-printed: on one line if it fits, otherwise broken across lines, one element or field per line. An optional second argument is an element spec, as in `{}`. `dbg` is built into the compiler, since it needs the call's line and source text.
+- **Without a label,** use `eprint("{state:pretty}")`, or `state.pretty()` for the string.
 
 **Pretty-print options** are written the same way everywhere: as a program-wide default, in a call, or inside a string.
 
 ```
-#pp(indent: 4, wrap: 120)             // default for the whole program
-pp(state, lines: Many, max: 20)       // this call only
-pp(state, l: Many, m: 20)             // the same, with shortened names
+#pretty(indent: 4, wrap: 120)         // default for the whole program
+dbg(state, lines: Many, max: 20)      // this call only
+dbg(state, l: Many, m: 20)            // the same, with shortened names
 "{state:many max20}"                  // the same options inside a string
 "{state:m m20}"                       // shortened there too
 s = state.pretty(lines: Many)         // the pretty form as a string
@@ -389,9 +391,9 @@ s = state.pretty(lines: Many)         // the pretty form as a string
 In code, the names start with different letters, so each can be shortened to one: `w`, `i`, `l`, `m`. Inside a string, values are glued on (`wrap120`, `i4`, `m20`), and `lines` is written as just its value: `one`, `many` or `auto`. The line width is called `wrap` so it is not confused with the padding width `r10` in a format spec.
 
 - `One`, `Many` and `Auto` are the field-less variants of a built-in `type Lines = One | Many | Auto`, so they need no quotes.
-- `x.pretty(...)` returns the pretty form as a string, and `pp(x, ...)` writes `x.pretty(...)` to stderr.
+- `x.pretty(...)` returns the pretty form as a string.
 - `print` ignores these options, because it writes answers.
-- `dbg` and `pp` always quote strings, so stray whitespace is visible.
+- `dbg` always quotes strings, so stray whitespace is visible.
 
 **Drawing grids, trees and graphs**
 
@@ -463,7 +465,7 @@ type Instr =                            // long types: one variant per line
 
 - **Each variant is a record.** It is constructed, mutated, compared, hashed and printed exactly like one, with field types inferred. Variants order by declaration order, then by fields. A variant with no fields, like `Halt`, is a single shared value. A `type` needs at least two variants; a single one is a `record`.
 - **Shared fields.** If every variant of a type has a field with the same name, it can be used on the type itself without narrowing: with `type Shape = Circle(color, c, r) | Rect(color, corner, w, h)`, `s.color` works on any `Shape`, and so do `s.color = "red"` and `s.with(color: "red")`. The field's types must unify across variants. A field that some variant lacks is a compile error that names that variant. Fields may sit at different positions; the compiler branches on the tag when they do, and uses a plain load when they share a position.
-- **`x is Add`** tests the variant. In an `if`, `while`, `and` or `or`, it narrows a local the same way a `null` check does, so the variant's fields can be used directly.
+- **`x is Add`** tests the variant. In an `if`, `while`, `and` or `or`, it narrows a local the same way a `null` check does, so the variant's fields can be used directly. `x is not Add` is its negation and narrows on the path where it is false. `is` takes only a variant name; `x is int` is a compile error with a hint to use an overload.
 - **No exhaustiveness checking in `match`.** A `match` that forgets a variant fails at run time, like every other mistake. Overloads on variants are checked: a call that leaves a variant uncovered is a compile error; see Overloads on variants.
 
 ## Pattern matching
@@ -534,7 +536,7 @@ fn f(age, address, name) = ...
 f(12, "Main St", "john")              // positional
 f(address: "Main St", name: "john", age: 12)  // named, in any order
 f(ad: "Main St", ag: 12, n: "john")   // shortened
-pp(state, ind: 4, l: Many)
+dbg(state, ind: 4, l: Many)
 
 record Box(width, height)
 Box(w: 3, h: 4)                       // construction is a call, so this works
@@ -648,7 +650,7 @@ print(a.dist(b))            // geom's dist, found through Point's module
 - Anything a program may contain. Its top-level statements run once, before the importer's, in the order imports are first reached. That is how a module sets constants such as `DIRS` or a precomputed table.
 - Its globals belong to it and are reached as `geom.EPS`.
 - `#in` and `#out` blocks are ignored on import but still run when the file itself is tested, so a library file can carry its own tests.
-- Program-level pragmas such as `#default int = big` and `#pp` belong only to the main file and are an error elsewhere. Library code is generic over the `int` alias, so it follows the main file's choice.
+- Program-level pragmas such as `#default int = big` and `#pretty` belong only to the main file and are an error elsewhere. Library code is generic over the `int` alias, so it follows the main file's choice.
 - Cyclic imports are an error.
 
 **Cost.** Only functions that are called get compiled, so importing a large helper file costs nothing at runtime. Unannotated functions are checked where they are used, so an error inside an imported function shows the call site in your file and the chain of imports.
@@ -690,7 +692,7 @@ loops = cells.par().filter { g[$0] == '.' and loops_with($0) }.count()
 - **Allowed after `.par()`:** `map`, `filter`, `flat_map`, `enumerate`, then any reduce or collect step. `sum`, `product`, `min`, `max`, `count`, `any`, `all`, `find`, `position`, the `_by` forms and every collect work as they do serially. `reduce` needs an associative function, as in `reduce(+)`. The compiler cannot check that, so a non-associative one gives an unspecified result. `fold` is not allowed, because chunk results cannot be combined with its step function; use `map` and then `reduce`. Steps that depend on order across elements, such as `sort`, `scan`, `windows` or `take_while`, are compile errors after `.par()`; put them before it.
 - **Infinite ranges.** `(1..).par()` must end in `find`, `position`, `any` or `all`. Threads take chunks in order and stop once a match is found and every earlier chunk is done.
 - **Lambdas may read anything but write only their own data.** Inside a parallel step, including any function it calls, assigning to a global or a captured variable is a compile error, and so is mutating an array, map, set or record that was not created during that call. Reading captured and global data, including a large grid or map, is fine. The check is conservative: if the compiler cannot tell where a value came from, mutating it is an error. This is a stricter form of the rule fusion already uses.
-- **No stdout or stdin.** `print`, `put` and the `read_` family are compile errors in a parallel step, because their order would be random. `dbg`, `pp` and `eprint` are allowed and write whole lines to stderr, possibly interleaved.
+- **No stdout or stdin.** `print`, `put`, `has_input` and the `read_` family are compile errors in a parallel step, because their order would be random. `dbg` and `eprint` are allowed and write whole lines to stderr, possibly interleaved.
 - **`memo` functions** called from a parallel step keep one cache per thread, so they stay correct but do not share results between threads.
 - **Traps.** If an element traps, the remaining threads stop, and the trap from the lowest index is raised in the caller, where `try` can catch it.
 - **Nesting.** A `.par()` inside a parallel step runs serially.
@@ -699,7 +701,7 @@ loops = cells.par().filter { g[$0] == '.' and loops_with($0) }.count()
 
 ## Input and output
 
-All input functions share the `read_` prefix, so there is one family to remember. Input is read in one buffered gulp and parsed from memory, which keeps it fast.
+Every function that consumes input starts with `read_`, so there is one family to remember, and `has_input()` checks for more without consuming any. Input is read in one buffered gulp and parsed from memory, which keeps it fast.
 
 | Function | Returns | Meaning |
 | --- | --- | --- |
@@ -716,7 +718,7 @@ All input functions share the `read_` prefix, so there is one family to remember
 | `read_rows(n, int, int, int)` | `[(int, int, int)]` | `n` rows of typed tuples, such as edge lists |
 | `read_grid()` | `[[u8]]` | All remaining lines as a mutable byte grid |
 | `read_blocks()` | `[[str]]` | All remaining lines, split into groups at blank lines |
-| `read_eof()` | `bool` | True when no input remains |
+| `has_input()` | `bool` | True while anything other than whitespace remains; reads nothing |
 
 ```
 n = read_int()
@@ -732,9 +734,9 @@ bs: [big] = read_ints(n)
 - **Numeric types come from context.** `read_int()` and `read_ints(n)` return any integer type (`int`, `u8`, `big`, `Mod(m)`), and `read_float()` returns any fractional type (`float`, `rat`, `bigfloat`). Inference picks the type from a declared type or later use, and falls back to the program default. The Returns column above shows the defaults, where `int` means whatever `int` currently is: `i64`, or `big` under `#default int = big`. A `rat` is read exactly from decimals such as `1.25` or fractions such as `3/4`.
 - Token readers skip any whitespace, including newlines. `read_line()` returns the rest of the current line if it has text. If only whitespace remains after a token read, it first consumes that remainder and returns the following line, which avoids the classic Java mix-up of `nextInt` followed by `nextLine`.
 - A custom delimiter uses string methods: `read_line().split(sep)`, or `s.extract_ints()` to pull every integer out of any string.
-- Reading past the end of input traps; test with `read_eof()`.
+- Reading past the end of input traps; test with `has_input()`, as in `while has_input() { total += read_int() }`. A trailing newline does not count as input, so that loop is safe.
 
-**Output.** `print(a, b)` writes its arguments separated by spaces plus a newline, `put(x)` writes without a newline, and output is buffered and flushed at exit. `flush()` is available for interactive problems. `eprint`, `dbg` and `pp` write to stderr; see Printing and debugging.
+**Output.** `print(a, b)` writes its arguments separated by spaces plus a newline, `put(x)` writes without a newline, and output is buffered and flushed at exit. `flush()` is available for interactive problems. `eprint` and `dbg` write to stderr; see Printing and debugging.
 
 ## Standard library
 
@@ -780,8 +782,8 @@ A program can carry the examples from the problem statement as plain text, paste
 - **Output is compared line by line,** ignoring trailing spaces on each line and trailing blank lines. Blank lines in the middle are kept and compared.
 - A directive line may end with a `//` comment. Inside a block, `//` is data.
 - An `#in` with no `#out` just runs, which suits a real Advent of Code input with no known answer.
-- A normal run ignores these blocks, so the file submits unchanged. `#` directives are the same family as `#pp` and `#default`, so `test` is not a reserved word.
-- Output written with `dbg`, `pp` and `eprint` goes to stderr and is shown but not compared.
+- A normal run ignores these blocks, so the file submits unchanged. `#` directives are the same family as `#pretty` and `#default`, so `test` is not a reserved word.
+- Output written with `dbg` and `eprint` goes to stderr and is shown but not compared.
 
 ## Memory, FFI and concurrency
 
@@ -843,7 +845,7 @@ The compiler is a short pipeline that emits one C file and lets a C compiler fin
 1. Ints, floats, functions, control flow, arrays and strings.
 2. Inference with implicit generics and monomorphization.
 3. Tuples, records, variant types and `match`, closures, maps, sets, uniform call syntax, optionals and `try`/`catch`.
-4. The `read_` family, buffered output, formatting and derived printing, `dbg` and `pp`, and the `test` command.
+4. The `read_` family, buffered output, formatting and derived printing, `dbg`, and the `test` command.
 5. Imports, then the library in the language itself: iterators, graphs, grids and data structures.
 6. `big`, `Mod`, `rat`, matrices and the solver.
 7. FFI, then iterator fusion, then `.par()`, which builds on fusion.

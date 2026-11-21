@@ -78,7 +78,7 @@ The spec lists seven stages. In the code, inference and monomorphization are one
 ### 1. Source
 
 - **Test blocks.** Before lexing, scan lines for directives that are exactly `#in`, `#out` or `#end`, optionally followed by a path and a `//` comment. Their blocks are cut out and stored as test cases; the code lines are kept with their original line numbers so spans stay right.
-- **Pragmas.** `#default int = big`, `#pp(...)`, `#par(...)` and `#mem arena` or `#mem gc` are also whole lines, parsed here into a pragma record. In an imported file they are an error.
+- **Pragmas.** `#default int = big`, `#pretty(...)`, `#par(...)` and `#mem arena` or `#mem gc` are also whole lines, parsed here into a pragma record. In an imported file they are an error.
 - **Files** are read as bytes. Source is UTF-8 but the lexer only cares about ASCII outside string literals.
 
 ### 2. Lexer
@@ -103,7 +103,7 @@ Produces tokens with spans: a file index and start and end byte offsets, end exc
 Recursive descent for statements and declarations, and a Pratt parser for expressions.
 
 - **Precedence.** Binding powers follow the operator table in `spec.md`. `**` is right-associative and its right operand may start with a unary operator. Bare `try expr` and `raise expr` parse their operand at the `and` level, so `try int(s) or 0` is `(try int(s)) or 0`.
-- **Chained comparisons** become one node with a list of operands, so the lowering can evaluate each middle operand once.
+- **Chained comparisons** become one node with a list of operands, so the lowering can evaluate each middle operand once. `not in` and `is not` are single operators, and `is` does not chain.
 - **Which `{` is a block.** After an `if`, `while`, `for`, `match`, `try` or `catch` head, `else`, `fn ... =`, `=>` and a match arm's colon, `{` always starts a block. A map literal there needs parentheses, as in Rust. Anywhere else in an expression, the parser scans to the matching `}`: if it is empty, or its first item is followed by a `:` at the top level of the braces, it is a map literal; otherwise it is a shorthand closure.
 - **Blocks.** A block node holds its statements and an optional final expression, which is its value. A trailing `;` after that expression does not remove it, as the spec requires.
 - **Lambdas.** At `(` in expression position, the parser scans ahead to the matching `)`. If `=>`, or `-> Type =>`, follows, the parentheses are a parameter list; otherwise they are a parenthesized expression or tuple. A name followed by `=>` is a one-parameter lambda. The body is a full expression at the lowest precedence, so `x => a or b` takes all of `a or b`.
@@ -162,7 +162,7 @@ This is the largest stage. It checks function bodies and creates specialized cop
 
 Runs on the typed, specialized program.
 
-- **`.par()` rules.** A bottom-up pass over the call graph computes, for each instance, whether it writes to globals, writes to captured variables, or mutates any value it did not allocate itself. Values are tracked by origin: allocated in this call, or "from outside" (parameters, captures, globals, anything loaded from those). Mutating a value from outside is a write, and a view has the same origin as its source. Recursion is handled by iterating to a fixed point. A parallel step whose lambda writes is an error that points at the write, through the call chain. `print`, `put` and `read_` are marked as writes to stdout or stdin, and `dbg`, `pp` and `eprint` are allowed.
+- **`.par()` rules.** A bottom-up pass over the call graph computes, for each instance, whether it writes to globals, writes to captured variables, or mutates any value it did not allocate itself. Values are tracked by origin: allocated in this call, or "from outside" (parameters, captures, globals, anything loaded from those). Mutating a value from outside is a write, and a view has the same origin as its source. Recursion is handled by iterating to a fixed point. A parallel step whose lambda writes is an error that points at the write, through the call chain. `print`, `put` and `read_` are marked as writes to stdout or stdin, and `dbg` and `eprint` are allowed.
 - **Fusion eligibility** is the same summary: no I/O and no writes to captured variables.
 - **Other checks:** unused variables (warning), `[[0] * m] * n` (error), overriding `==` without `hash` (error), and `Mod(m)` modulus rules.
 
@@ -220,6 +220,7 @@ Turns typed instances into a C-shaped tree: statements, expressions, and declara
 | unit | No value; `void` in returns |
 
 - Wrapping types (`wrap8` to `wrap64`) are plain unsigned integers.
+- **Bool operators.** `~` on a `bool` lowers to C's `!`, because C's `~` would turn `true` into a nonzero int. `& | ^` on `bool` lower to the C operators and evaluate both operands.
 - **Membership.** The checker resolves `x in c` to the `contains` overload for `c`'s type, so builtin and user types share one path. Each operand is evaluated once, including in chained comparisons. Range `contains` compares bounds and never builds an iterator.
 - **View assignment.** `a.[i..j] = b` is its own assignment target. It checks the length and copies with `memmove`, so overlapping ranges work. Other compound assignments to a view are compile errors.
 - **Array views** use the normal `[T]` header with `data` pointing into the source buffer and `cap` set to 0, so indexing has no extra cost and growth reaches the slow path, which traps. Old array buffers are never reused after growth, so a view or generated loop holding the old data pointer stays memory-safe. `--debug` builds also store the source and its buffer generation in the view, to trap on stale use.
@@ -282,7 +283,7 @@ Each milestone ends with tests passing. The milestone numbers match the spec's.
 1. **Ints, floats, functions, control flow, arrays and strings.** Source, lexer, parser, resolver, and a first infer pass with no generics; emit C; runtime bump allocator with both allocation calls, traps, output and basic strings. First target: a program that reads numbers and prints their sum, through gcc.
 2. **Inference with implicit generics and monomorphization.** The instantiation worklist, number defaulting, error chains.
 3. **Tuples, records, variants, `match`, closures, maps, sets, uniform call syntax, optionals and `try`.** Hash tables, closure conversion, captures and boxing, optional flags and narrowing, `rt_try`, overloads and variant dispatch.
-4. **Input, buffered output, formatting, printing, `dbg`, `pp`, and `sherbet test`.** The runtime formatter, format string checking and test blocks.
+4. **Input, buffered output, formatting, printing, `dbg`, and `sherbet test`.** The runtime formatter, format string checking and test blocks.
 5. **Imports and the library.** Module loading, qualified names, the prelude, intrinsics, and the library itself.
 6. **`big`, `Mod`, `rat`, matrices and the solver.** GMP glue, Barrett reduction.
 7. **FFI, fusion, then `.par()`.** The write analysis in the check stage, the thread pool, chunked lowering.
