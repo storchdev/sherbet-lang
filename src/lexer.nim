@@ -134,7 +134,9 @@ type TestBlock* = ref object
 
 type Lexer = ref object
   tokens*: seq[Token]
-  bracketStack*: seq[Token]
+  pragmas*: seq[Span]
+  tests*: seq[TestBlock]
+  bracketStack*: seq[TokenKind]
   file*: SherFile
   sink*: DiagnosticSink
   pos*: int
@@ -158,6 +160,8 @@ proc fail(lexer: Lexer, start: int, stop: int, message: string) =
   lexer.sink.reportError(initSpan(lexer.file.index, start, stop), message, @[], @[])
   raise newException(LexAbort, "")
 
+proc scanTokens(lexer: Lexer, inFString: bool)
+
 proc scanString(lexer: Lexer) =
   let startPos = lexer.pos
 
@@ -168,9 +172,9 @@ proc scanString(lexer: Lexer) =
   else:
     multi = false
 
-  # invariant: if a part is added to parts, the original (str or expr) must be cleared
+  # invariant: if a fsText part is added to parts, the original str must be cleared
   var str: seq[char] = @[]
-  var expr: seq[Token] = @[]
+  # var expr: seq[Token] = @[]
   var parts: seq[FStringPart] = @[]
 
   while true:
@@ -182,12 +186,12 @@ proc scanString(lexer: Lexer) =
       if len(str) > 0:
         parts.add(FStringPart(kind: fsText, text: str.join()))
         str = @[]
-      elif len(expr) > 0:
-        parts.add(FStringPart(kind: fsExpr, tokens: expr))
-        parts = @[]
-      else:
-        # we have empty string
-        parts.add(FStringPart(kind: fsText, text: ""))
+      # elif len(expr) > 0:
+      #   parts.add(FStringPart(kind: fsExpr, tokens: expr))
+      #   parts = @[]
+      # else:
+      # # we have empty string
+      # parts.add(FStringPart(kind: fsText, text: ""))
       break
 
     if (lexer.peek(), lexer.peek(1)) == ('{', '{'):
@@ -200,26 +204,70 @@ proc scanString(lexer: Lexer) =
       lexer.pos += 1
       continue
 
-    # TODO handle escapes
-    # TODO handle exprs
+    if lexer.peek() == '\\':
+      # always consume char after
+      let c = lexer.peek(1)
+      var esc: char
 
-  # TODO
-  if len(parts) == 1 and parts[0].kind == fsText:
-    # add Token with kind=tkString and text=parts[0].text
-    discard
-  else:
-    discard
+      case c
+      of 'n':
+        esc = '\n'
+        lexer.pos += 2
+      of 't':
+        esc = '\t'
+        lexer.pos += 2
+      of 'r':
+        esc = '\r'
+        lexer.pos += 2
+      of '0':
+        esc = char(0)
+        lexer.pos += 2
+      of '\\':
+        esc = '\\'
+        lexer.pos += 2
+      of '"':
+        esc = '"'
+        lexer.pos += 2
+      of '\'':
+        esc = '\''
+        lexer.pos += 2
+      of 'x':
+        if lexer.peek(2) notin HexDigits or lexer.peek(3) notin HexDigits:
+          lexer.fail(lexer.pos, lexer.pos + 4, "invalid hex escape")
+        esc = char(parseHexInt(lexer.file.content[lexer.pos + 2 .. lexer.pos + 3]))
+        lexer.pos += 4
+      else:
+        lexer.fail(lexer.pos, lexer.pos + 2, "invalid escape sequence")
 
-proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
-  var lexer = Lexer(
-    tokens: @[],
-    bracketStack: @[],
-    file: file,
-    sink: sink,
-    pos: 0,
-    prevToken: none(Token),
-    lineBreak: false,
-  )
+      str.add(esc)
+      continue
+
+    if lexer.peek() == '{':
+      if len(str) > 0:
+        parts.add(FStringPart(kind: fsText, text: str.join()))
+        str = @[]
+
+      let subLexer = Lexer(
+        file: lexer.file,
+        sink: lexer.sink,
+        pos: lexer.pos + 1,
+        prevToken: none(Token),
+        lineBreak: false,
+      )
+      subLexer.scanTokens(inFString = true)
+      parts.add(FStringPart(kind: fsExpr, tokens: subLexer.tokens))
+
+      lexer.pos = subLexer.pos
+      continue
+
+  if len(parts) == 0: # empty str
+    lexer.tokens.add(Token(kind: tkString, text: ""))
+  elif len(parts) == 1 and parts[0].kind == fsText: # non f string
+    lexer.tokens.add(Token(kind: tkString, text: parts[0].text))
+  else: # f string
+    lexer.tokens.add(Token(kind: tkFString, parts: parts))
+
+proc scanTokens(lexer: Lexer, inFString: bool) =
   while true:
     let c = lexer.peek(0)
     if c == ' ' or c == '\t':
@@ -228,5 +276,24 @@ proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
 
     if c == '"':
       lexer.scanString()
+      continue
 
-  # TODO
+    if c == '{':
+      lexer.bracketStack.add(tkLBrace)
+    elif c == '(':
+      lexer.bracketStack.add(tkLParen)
+    elif c == '[':
+      lexer.bracketStack.add(tkLBracket)
+    elif c == '.' and lexer.peek(1) == '[':
+      lexer.bracketStack.add(tkDotBracket)
+    elif c in ['}', ']', ')'] and lexer.bracketStack.len > 0:
+      discard lexer.bracketStack.pop()
+
+    # TODO: real tokens!
+
+proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
+  var lexer =
+    Lexer(file: file, sink: sink, pos: 0, prevToken: none(Token), lineBreak: false)
+
+  lexer.scanTokens(inFString = false)
+  return LexerResult(tokens: lexer.tokens, pragmas: lexer.pragmas, tests: lexer.tests)
