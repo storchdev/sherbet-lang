@@ -23,7 +23,7 @@ proc addFile*(self: FileList, fileName: string): SherFile =
       offsets.add(i + 1)
 
   result = SherFile(
-    index: len(self.files), name: fileName, content: content, lineOffsets: offsets
+    index: self.files.len, name: fileName, content: content, lineOffsets: offsets
   )
   self.files.add(result)
 

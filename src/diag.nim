@@ -35,7 +35,7 @@ proc emitDiagnostic[T](self: Diagnostic, fileList: FileList, output: T = stderr)
   let (row, startCol) = fileList.getSpanPos(self.span)
 
   var line: string
-  if row == len(sherFile.lineOffsets) - 1:
+  if row == sherFile.lineOffsets.len - 1:
     line = sherFile.content[sherFile.lineOffsets[row] ..^ 1]
   else:
     line = sherFile.content[
@@ -44,8 +44,8 @@ proc emitDiagnostic[T](self: Diagnostic, fileList: FileList, output: T = stderr)
   line = line.strip(chars = {'\r'})
 
   var numCarets = self.span.stop - self.span.start
-  if startCol + numCarets > len(line):
-    numCarets = len(line) - startCol
+  if startCol + numCarets > line.len:
+    numCarets = line.len - startCol
   if (numCarets == 0):
     numCarets = 1
 

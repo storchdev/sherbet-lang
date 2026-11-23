@@ -153,14 +153,14 @@ type LexerResult* = ref object
 type LexAbort = object of CatchableError
 
 proc peek(lexer: Lexer, n: int = 0): char =
-  if lexer.pos + n >= len(lexer.file.content):
+  if lexer.pos + n >= lexer.file.content.len:
     return '\0'
 
   return lexer.file.content[lexer.pos + n]
 
 proc fail(lexer: Lexer, start: int, stop: int, message: string) {.noreturn.} =
   lexer.sink.reportError(
-    initSpan(lexer.file.index, start, min(stop, len(lexer.file.content))),
+    initSpan(lexer.file.index, start, min(stop, lexer.file.content.len)),
     message,
     @[],
     @[],
@@ -196,8 +196,8 @@ proc scanString(lexer: Lexer) =
   var done = false
 
   while true:
-    if lexer.pos >= len(lexer.file.content):
-      lexer.fail(startPos, len(lexer.file.content), "unclosed string")
+    if lexer.pos >= lexer.file.content.len:
+      lexer.fail(startPos, lexer.file.content.len, "unclosed string")
 
     if (lexer.peek() == '"' and not multi):
       done = true
@@ -207,15 +207,9 @@ proc scanString(lexer: Lexer) =
       lexer.pos += 3
 
     if done:
-      if len(str) > 0:
+      if str.len > 0:
         parts.add(FStringPart(kind: fsText, text: str))
         str = ""
-      # elif len(expr) > 0:
-      #   parts.add(FStringPart(kind: fsExpr, tokens: expr))
-      #   parts = @[]
-      # else:
-      # # we have empty string
-      # parts.add(FStringPart(kind: fsText, text: ""))
       break
 
     if (lexer.peek(), lexer.peek(1)) == ('{', '{'):
@@ -267,7 +261,7 @@ proc scanString(lexer: Lexer) =
       continue
 
     if lexer.peek() == '{':
-      if len(str) > 0:
+      if str.len > 0:
         parts.add(FStringPart(kind: fsText, text: str))
         str = ""
 
@@ -293,10 +287,9 @@ proc scanString(lexer: Lexer) =
         let specStart = lexer.pos
         var depth = 0
         while true:
-          if lexer.pos >= len(lexer.file.content):
+          if lexer.pos >= lexer.file.content.len:
             lexer.fail(
-              startPos,
-              len(lexer.file.content),
+              startPos, lexer.file.content.len,
               "unclosed expression format inside string",
             )
           if depth == 0 and lexer.peek() == '}':
@@ -325,16 +318,16 @@ proc scanString(lexer: Lexer) =
     str.add(lexer.file.content[lexer.pos])
     lexer.pos += 1
 
-  if len(parts) == 0: # empty str
+  if parts.len == 0: # empty str
     lexer.emitToken(Token(kind: tkString, text: ""), startPos)
-  elif len(parts) == 1 and parts[0].kind == fsText: # non f string
+  elif parts.len == 1 and parts[0].kind == fsText: # non f string
     lexer.emitToken(Token(kind: tkString, text: parts[0].text), startPos)
   else: # f string
     lexer.emitToken(Token(kind: tkFString, parts: parts), startPos)
 
 proc scanTokens(lexer: Lexer, inFString: bool) =
   while true:
-    if lexer.pos >= len(lexer.file.content):
+    if lexer.pos >= lexer.file.content.len:
       return
 
     let c = lexer.peek()
