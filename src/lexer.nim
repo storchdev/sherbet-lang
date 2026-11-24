@@ -354,6 +354,38 @@ proc scanString(lexer: Lexer) =
   else: # f string
     lexer.emitToken(Token(kind: tkFString, parts: parts), startPos)
 
+proc getKeywordKind(word: string): TokenKind =
+  return
+    case word
+    of "fn": tkFn
+    of "let": tkLet
+    of "if": tkIf
+    of "else": tkElse
+    of "while": tkWhile
+    of "for": tkFor
+    of "in": tkIn
+    of "break": tkBreak
+    of "continue": tkContinue
+    of "return": tkReturn
+    of "match": tkMatch
+    of "try": tkTry
+    of "catch": tkCatch
+    of "raise": tkRaise
+    of "import": tkImport
+    of "as": tkAs
+    of "record": tkRecord
+    of "type": tkType
+    of "extern": tkExtern
+    of "memo": tkMemo
+    of "and": tkAnd
+    of "or": tkOr
+    of "not": tkNot
+    of "is": tkIs
+    of "null": tkNull
+    of "true": tkTrue
+    of "false": tkFalse
+    else: tkID
+
 proc scanTokens(lexer: Lexer, inFString: bool) =
   while true:
     if lexer.pos >= lexer.file.content.len:
@@ -382,7 +414,27 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
     elif c in ['}', ']', ')'] and lexer.bracketStack.len > 0:
       discard lexer.bracketStack.pop()
 
-    # TODO: real tokens!
+    let start = lexer.pos
+    if c in IdentStartChars: # name or keyword
+      lexer.pos += 1
+      while true:
+        let c = lexer.peek()
+        if c notin IdentChars:
+          break
+        lexer.pos += 1
+
+      let lexeme = lexer.file.content[start ..< lexer.pos]
+      let kind = getKeywordKind(lexeme)
+      if kind == tkID:
+        lexer.emitToken(Token(kind: tkID, text: lexeme), start)
+      else:
+        lexer.emitToken(Token(kind: kind), start)
+      continue
+
+    # TODO:other tokens!
+
+    # escape hatch so it doesnt infinite loop on unsupported shit
+    lexer.fail(lexer.pos, lexer.pos + 1, "unsupported token start character")
 
 proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
   var lexer =
