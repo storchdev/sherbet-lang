@@ -180,7 +180,7 @@ proc scanTokens(lexer: Lexer, inFString: bool)
 
 proc scanFStringExpr(mainLexer: Lexer, stringStartPos: int): FStringPart =
   # Starts at {
-  # Stops before }
+  # Stops after }
   # Returns a FStringPart with kind fsExpr
   let lexer = mainLexer
   let subLexer = Lexer(
@@ -229,7 +229,15 @@ proc scanFStringExpr(mainLexer: Lexer, stringStartPos: int): FStringPart =
     var spec: seq[FStringPart] = @[]
 
     while true:
+      if lexer.pos >= lexer.file.content.len:
+        lexer.fail(stringStartPos, lexer.pos, "unclosed string format")
+
       let c = lexer.peek()
+
+      if c in ['\n', '"']:
+        lexer.fail(
+          stringStartPos, lexer.pos, "unexpected newline or quote in string format"
+        )
 
       if c == '{':
         if specStr.len > 0:
@@ -245,6 +253,7 @@ proc scanFStringExpr(mainLexer: Lexer, stringStartPos: int): FStringPart =
           spec.add(FStringPart(kind: fsText, text: specStr))
           specStr = ""
         specStop = lexer.pos # at the }
+        lexer.pos += 1
         break
 
       specStr.add(c)
@@ -304,6 +313,9 @@ proc scanString(lexer: Lexer) =
       lexer.pos += 2
       continue
 
+    if lexer.peek() == '}':
+      lexer.fail(startPos, lexer.pos + 1, "unexpected '}' in string")
+
     if lexer.peek() == '\\':
       # always consume char after
       let c = lexer.peek(1)
@@ -349,6 +361,7 @@ proc scanString(lexer: Lexer) =
 
       let part = scanFStringExpr(lexer, startPos)
       parts.add(part)
+      continue
 
     if lexer.peek() == '\n' and not multi:
       lexer.fail(startPos, lexer.pos, "unclosed string")
@@ -397,5 +410,11 @@ proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
   var lexer =
     Lexer(file: file, sink: sink, pos: 0, prevTokenKind: tkNL, hasLineBreak: false)
 
-  lexer.scanTokens(inFString = false)
+  try:
+    lexer.scanTokens(inFString = false)
+  except LexAbort:
+    discard # fail gracefully, sink already has errors 
+
+  lexer.pos = file.content.len
+  lexer.emitToken(Token(kind: tkEOF), start = file.content.len)
   return LexerResult(tokens: lexer.tokens, pragmas: lexer.pragmas, tests: lexer.tests)
