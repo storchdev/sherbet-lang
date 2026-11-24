@@ -1,6 +1,5 @@
 import diag
 import span
-import std/options
 import std/strutils
 
 type
@@ -182,6 +181,7 @@ proc scanFStringExpr(mainLexer: Lexer, stringStartPos: int): FStringPart =
   # Starts at {
   # Stops after }
   # Returns a FStringPart with kind fsExpr
+
   let lexer = mainLexer
   let subLexer = Lexer(
     file: lexer.file,
@@ -194,32 +194,10 @@ proc scanFStringExpr(mainLexer: Lexer, stringStartPos: int): FStringPart =
   # TODO: {x=} form
   lexer.pos = subLexer.pos # update so we are about to consume } or :
 
-  # FStringPart
-  # tokens*: seq[Token]
-  # spec*: seq[FStringPart]
-  # specSpan*: Span
-
   if lexer.peek() == '}':
     lexer.pos += 1
     return FStringPart(kind: fsExpr, tokens: subLexer.tokens, spec: @[])
   if lexer.peek() == ':':
-    # this is for parsing something like {x:.{p}}
-    # lexer.pos += 1
-    # let specStart = lexer.pos
-    # var depth = 0
-    # while true:
-    #   if lexer.pos >= lexer.file.content.len:
-    #     lexer.fail(
-    #       startPos, lexer.file.content.len, "unclosed expression format inside string"
-    #     )
-    #   if depth == 0 and lexer.peek() == '}':
-    #     break
-    #   if lexer.peek() == '{':
-    #     depth += 1
-    #   elif lexer.peek() == '}':
-    #     depth -= 1
-    #   lexer.pos += 1
-
     # spec loop: collect the chars until we hit {
     lexer.pos += 1
     let specStart = lexer.pos
@@ -282,7 +260,6 @@ proc scanString(lexer: Lexer) =
 
   # invariant: if a fsText part is added to parts, the original str must be cleared
   var str = ""
-  # var expr: seq[Token] = @[]
   var parts: seq[FStringPart] = @[]
   var done = false
 
@@ -365,6 +342,7 @@ proc scanString(lexer: Lexer) =
 
     if lexer.peek() == '\n' and not multi:
       lexer.fail(startPos, lexer.pos, "unclosed string")
+
     # ordinary characters
     str.add(lexer.file.content[lexer.pos])
     lexer.pos += 1
