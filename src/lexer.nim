@@ -62,9 +62,9 @@ type
     tkBackslash
     # Operators (bit)
     tkTilde
-    tkBitAnd
-    tkBitOr
-    tkBitXor
+    tkAmp
+    tkPipe
+    tkCaret
     tkLShift
     tkRShift
     # Brackets
@@ -97,9 +97,9 @@ type
     tkModEq
     tkPowerEq
     tkAtEq
-    tkBitAndEq
-    tkBitOrEq
-    tkBitXorEq
+    tkAmpEq
+    tkPipeEq
+    tkCaretEq
     tkLShiftEq
     tkRShiftEq
 
@@ -393,15 +393,18 @@ const LBrackets = {tkLBrace, tkLParen, tkLBracket, tkDotBracket}
 const RBrackets = {tkRBrace, tkRParen, tkRBracket}
 const BinaryOpTokens = {
   tkPlus, tkMinus, tkMul, tkDiv, tkFloorDiv, tkPower, tkEq, tkNeq, tkGt, tkGeq, tkLt,
-  tkLeq, tkMod, tkAt, tkBackslash, tkBitAnd, tkBitOr, tkBitXor, tkLShift, tkRShift,
-  tkRange, tkRangeEq, tkDot, tkQuestionDot, tkPlusEq, tkMinusEq, tkMulEq, tkDivEq,
-  tkFloorDivEq, tkModEq, tkPowerEq, tkAtEq, tkBitAndEq, tkBitOrEq, tkBitXorEq,
-  tkLShiftEq, tkRShiftEq, tkAnd, tkOr, tkIn, tkIs,
+  tkLeq, tkMod, tkAt, tkBackslash, tkAmp, tkPipe, tkCaret, tkLShift, tkRShift, tkRange,
+  tkRangeEq, tkDot, tkQuestionDot, tkPlusEq, tkMinusEq, tkMulEq, tkDivEq, tkFloorDivEq,
+  tkModEq, tkPowerEq, tkAtEq, tkAmpEq, tkPipeEq, tkCaretEq, tkLShiftEq, tkRShiftEq,
+  tkAnd, tkOr, tkIn, tkIs,
 }
 # It makes sense to continue when a newline appears after these
-const ContTokens =
+const BeforeNLTokens =
   BinaryOpTokens - {tkRange, tkRangeEq} +
   {tkAssign, tkFatArrow, tkColon, tkComma, tkNL, tkNot} + LBrackets
+
+# These drop the previous newline
+const AfterNLTokens = {tkDot, tkDotBracket, tkQuestionDot, tkPipe, tkCatch, tkElse}
 
 const TokenSpellings = [
   ("**=", tkPowerEq),
@@ -428,9 +431,9 @@ const TokenSpellings = [
   ("/=", tkDivEq),
   ("%=", tkModEq),
   ("@=", tkAtEq),
-  ("&=", tkBitAndEq),
-  ("|=", tkBitOrEq),
-  ("^=", tkBitXorEq),
+  ("&=", tkAmpEq),
+  ("|=", tkPipeEq),
+  ("^=", tkCaretEq),
   ("+", tkPlus),
   ("-", tkMinus),
   ("*", tkMul),
@@ -439,9 +442,9 @@ const TokenSpellings = [
   ("%", tkMod),
   ("@", tkAt),
   (r"\", tkBackslash),
-  ("&", tkBitAnd),
-  ("|", tkBitOr),
-  ("^", tkBitXor),
+  ("&", tkAmp),
+  ("|", tkPipe),
+  ("^", tkCaret),
   ("!", tkBang),
   ("<", tkLt),
   (">", tkGt),
@@ -502,11 +505,11 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
           lexer.stringStartPos, lexer.pos, "unexpected line break in string expression"
         )
       lexer.pos += 1
-      # emit if ALL are true:
+      # emit if both are true:
       # no innermost bracket OR innermost bracket is a {
-      # prev token is not a continuation
+      # prev token is not a continuation (allowed before a NL)
       if (lexer.bracketStack.len == 0 or lexer.bracketStack[^1] == tkLBrace) and
-          lexer.prevTokenKind notin ContTokens:
+          lexer.prevTokenKind notin BeforeNLTokens:
         lexer.emitToken(Token(kind: tkNL), start)
 
       lexer.hasLineBreak = true
@@ -546,6 +549,15 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
     # escape hatch so it doesnt infinite loop on unsupported shit
     lexer.fail(lexer.pos, lexer.pos + 1, "unsupported token start character")
 
+proc dropPrevNLTokens(lexer: Lexer) =
+  var newTokens: seq[Token] = @[]
+  for i, t in lexer.tokens:
+    if t.kind == tkNL and i < lexer.tokens.len - 1:
+      if lexer.tokens[i + 1].kind in AfterNLTokens:
+        continue
+    newTokens.add(t)
+  lexer.tokens = newTokens
+
 proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
   var lexer =
     Lexer(file: file, sink: sink, pos: 0, prevTokenKind: tkNL, hasLineBreak: false)
@@ -557,4 +569,9 @@ proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
 
   lexer.pos = file.content.len
   lexer.emitToken(Token(kind: tkEOF), start = file.content.len)
+
+  # Hybrid approach: we already "drop" NLs that follow tokens in the main loop
+  # because it doesn't require lookahead
+  lexer.dropPrevNLTokens()
+
   return LexerResult(tokens: lexer.tokens, pragmas: lexer.pragmas, tests: lexer.tests)
