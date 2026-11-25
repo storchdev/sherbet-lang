@@ -1,0 +1,3 @@
+err_unterminated_string.sher:1:5: error: unclosed string
+    x = "abc
+        ^^^^

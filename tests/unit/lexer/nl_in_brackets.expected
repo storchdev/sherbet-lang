@@ -1,0 +1,4 @@
+id:f ( id:a , id:b ) NL
+[ int:1 , int:2 ] NL
+id:x .[ int:0 .. int:1 ] NL
+EOF

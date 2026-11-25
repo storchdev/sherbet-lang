@@ -84,10 +84,10 @@ The spec lists seven stages. In the code, inference and monomorphization are one
 
 Produces tokens with spans: a file index and start and end byte offsets, end exclusive. Line and column are not stored; when printing a diagnostic they come from a binary search over the file's line start offsets, recorded when the file is loaded.
 
-- **Newlines** become `Newline` tokens, which the lexer drops when:
+- **Newlines** become `Newline` tokens. The lexer emits at most one for each run of line breaks, ignoring blank and comment-only lines, and never one at the start of the file. It drops a `Newline` when any of the following holds; the first two are checked while scanning, and the last, which needs the next token, by a final pass at the end of `scan`:
   - the innermost open bracket is `( )`, `[ ]` or `.[ ]` (it tracks a stack of open brackets; `{` does not suppress newlines, since blocks need them, even when the `{` is itself inside parentheses),
   - the previous token is a binary operator other than `..` or `..=` (word operators `and`, `or`, `in`, `is` and `not` count, so `a is not` continues), or is `=`, `=>`, `:`, `,`, or an opening bracket (a range's end may be missing, so `r = 1..` ends at the newline),
-  - the next line that is not blank or only a comment starts with `.` (but not `..`, which starts a range) or `|` (but not `|=`), or with the whole word `else` or `catch`. A statement can never start with any of these, so this covers variant types written one per line, multi-line bitwise expressions and `else` on its own line.
+  - the next token is `.`, `.[`, `?.`, `|`, `else` or `catch`. Because this runs on tokens, `..` (a range), `|=` and words such as `elsewhere` are already different tokens and never match. A statement can never start with any of these, so this covers method chains, variant types written one per line, multi-line bitwise expressions and `else` on its own line.
 
   Every token also records whether a line break came before it, even when the `Newline` was dropped. The parser needs this for trailing closures, because inside `( )` there is no `Newline` token to tell it the `{` is on a later line.
 

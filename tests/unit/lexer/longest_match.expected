@@ -1,0 +1,3 @@
+id:a ~/= id:b **= id:c <<= id:d >>= id:e ..= id:f NL
+id:a ** id:b ~/ id:c NL
+EOF

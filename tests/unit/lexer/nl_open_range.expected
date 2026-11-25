@@ -1,0 +1,5 @@
+id:r = int:1 .. NL
+id:print ( id:x ) NL
+id:a ..= NL
+id:b NL
+EOF

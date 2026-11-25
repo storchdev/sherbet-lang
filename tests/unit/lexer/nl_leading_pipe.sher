@@ -1,0 +1,9 @@
+type I =
+  | A(x)
+
+  // note
+  | B
+m = a
+  | b
+c
+|= d

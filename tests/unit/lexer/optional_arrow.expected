@@ -1,0 +1,2 @@
+fn id:f ( id:a : id:int ? ) -> [ id:int ? ] NL
+EOF

@@ -1,0 +1,3 @@
+str:"a\n  b" NL
+str:"\\d\n{x}" NL
+EOF

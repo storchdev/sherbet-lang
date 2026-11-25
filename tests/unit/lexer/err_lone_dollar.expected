@@ -1,0 +1,3 @@
+err_lone_dollar.sher:1:1: error: expected digits after '$'
+    $ x
+    ^

@@ -1,0 +1,4 @@
+id:a + id:b NL
+id:c = id:d NL
+id:e , id:f => id:g NL
+EOF

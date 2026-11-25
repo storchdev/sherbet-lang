@@ -1,0 +1,5 @@
+type id:I = | id:A ( id:x ) | id:B NL
+id:m = id:a | id:b NL
+id:c NL
+|= id:d NL
+EOF

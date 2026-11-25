@@ -2,106 +2,108 @@ import diag
 import span
 import std/strutils
 import std/strformat
+import std/sugar
+import std/sequtils
 
 type
   TokenKind* = enum
     # Data
-    tkID
-    tkByte
-    tkInt
-    tkFloat
-    tkString
-    tkFString
-    tkDollar
-    tkEOF
+    tkID = "id"
+    tkByte = "byte"
+    tkInt = "int"
+    tkFloat = "float"
+    tkString = "str"
+    tkFString = "fstr"
+    tkDollar = "$"
+    tkEOF = "EOF"
     # Whitespace
-    tkNL
+    tkNL = "NL"
     # Keywords
-    tkFn
-    tkLet
-    tkIf
-    tkElse
-    tkWhile
-    tkFor
-    tkIn
-    tkBreak
-    tkContinue
-    tkReturn
-    tkMatch
-    tkTry
-    tkCatch
-    tkRaise
-    tkImport
-    tkAs
-    tkRecord
-    tkType
-    tkExtern
-    tkMemo
-    tkAnd
-    tkOr
-    tkNot
-    tkIs
-    tkNull
-    tkTrue
-    tkFalse
+    tkFn = "fn"
+    tkLet = "let"
+    tkIf = "if"
+    tkElse = "else"
+    tkWhile = "while"
+    tkFor = "for"
+    tkIn = "in"
+    tkBreak = "break"
+    tkContinue = "continue"
+    tkReturn = "return"
+    tkMatch = "match"
+    tkTry = "try"
+    tkCatch = "catch"
+    tkRaise = "raise"
+    tkImport = "import"
+    tkAs = "as"
+    tkRecord = "record"
+    tkType = "type"
+    tkExtern = "extern"
+    tkMemo = "memo"
+    tkAnd = "and"
+    tkOr = "or"
+    tkNot = "not"
+    tkIs = "is"
+    tkNull = "null"
+    tkTrue = "true"
+    tkFalse = "false"
     # Operators (numerical)
-    tkPlus
-    tkMinus
-    tkMul
-    tkDiv
-    tkFloorDiv
-    tkPower
-    tkEq
-    tkNeq
-    tkGt
-    tkGeq
-    tkLt
-    tkLeq
-    tkMod
-    tkAt
-    tkBackslash
+    tkPlus = "+"
+    tkMinus = "-"
+    tkMul = "*"
+    tkDiv = "/"
+    tkFloorDiv = "~/"
+    tkPower = "**"
+    tkEq = "=="
+    tkNeq = "!="
+    tkGt = ">"
+    tkGeq = ">="
+    tkLt = "<"
+    tkLeq = "<="
+    tkMod = "%"
+    tkAt = "@"
+    tkBackslash = r"\"
     # Operators (bit)
-    tkTilde
-    tkAmp
-    tkPipe
-    tkCaret
-    tkLShift
-    tkRShift
+    tkTilde = "~"
+    tkAmp = "&"
+    tkPipe = "|"
+    tkCaret = "^"
+    tkLShift = "<<"
+    tkRShift = ">>"
     # Brackets
-    tkLParen
-    tkRParen
-    tkLBracket
-    tkRBracket
-    tkDotBracket
-    tkLBrace
-    tkRBrace
+    tkLParen = "("
+    tkRParen = ") "
+    tkLBracket = "["
+    tkRBracket = "]"
+    tkDotBracket = ".["
+    tkLBrace = "{"
+    tkRBrace = "}"
     # Other symbols
-    tkAssign
-    tkArrow
-    tkFatArrow
-    tkRange
-    tkRangeEq
-    tkDot
-    tkComma
-    tkColon
-    tkSemicolon
-    tkBang
-    tkQuestion
-    tkQuestionDot
+    tkAssign = "="
+    tkArrow = "->"
+    tkFatArrow = "=>"
+    tkRange = ".."
+    tkRangeEq = "..="
+    tkDot = "."
+    tkComma = ","
+    tkColon = ":"
+    tkSemicolon = ";"
+    tkBang = "!"
+    tkQuestion = "?"
+    tkQuestionDot = "?."
     # Operate + assign
-    tkPlusEq
-    tkMinusEq
-    tkMulEq
-    tkDivEq
-    tkFloorDivEq
-    tkModEq
-    tkPowerEq
-    tkAtEq
-    tkAmpEq
-    tkPipeEq
-    tkCaretEq
-    tkLShiftEq
-    tkRShiftEq
+    tkPlusEq = "+="
+    tkMinusEq = "-="
+    tkMulEq = "*="
+    tkDivEq = "/="
+    tkFloorDivEq = "~/="
+    tkModEq = "%="
+    tkPowerEq = "**="
+    tkAtEq = "@="
+    tkAmpEq = "&="
+    tkPipeEq = "|="
+    tkCaretEq = "^="
+    tkLShiftEq = "<<="
+    tkRShiftEq = ">>="
 
   Token* = object
     hasLineBreakBefore*: bool
@@ -575,3 +577,40 @@ proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
   lexer.dropPrevNLTokens()
 
   return LexerResult(tokens: lexer.tokens, pragmas: lexer.pragmas, tests: lexer.tests)
+
+proc `$`*(f: FStringPart): string
+
+proc `$`*(t: Token): string =
+  if t.kind == tkNL:
+    return "NL\n"
+
+  if t.kind in {tkID, tkInt, tkFloat, tkString}:
+    return &"{$t.kind}:{t.text}"
+
+  if t.kind == tkByte:
+    return &"byte:{t.byteVal}"
+
+  if t.kind == tkDollar:
+    return &"${t.argIndex}"
+
+  if t.kind == tkFSTring:
+    let parts = t.parts.map((s) => $s).join(" ")
+    return &"fstr[ {parts} ]"
+
+  return $t.kind
+
+    # of tkInt, tkFloat, tkString, tkID: text*: string
+    # of tkDollar: argIndex*: int
+    # of tkByte: byteVal*: uint8
+    # of tkFString: parts*: seq[FStringPart]
+
+proc `$`*(f: FStringPart): string =
+  if f.kind == fsText:
+    addQuoted(result, f.text)
+  else:
+    let ttext = f.tokens.join(" ")
+    if f.spec.len > 0:
+      let stext = f.spec.map((s) => $s).join(" ")
+      result = &"{{ {ttext}:{stext} }}"
+    else:
+      result = &"{{ {ttext} }}"

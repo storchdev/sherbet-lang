@@ -1,0 +1,3 @@
+id:x ! id:y ?. id:z id:a .[ id:i .. id:j ] id:f ( id:x ) [ int:0 ] NL
+id:x != id:y NL
+EOF

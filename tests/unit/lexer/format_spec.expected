@@ -1,0 +1,4 @@
+fstr[ { id:n : "r3 fill0" } "|" ] NL
+fstr[ { id:x : "." { id:p } } ] NL
+fstr[ { id:s : "r9 fill" { str:"}" } } ] NL
+EOF

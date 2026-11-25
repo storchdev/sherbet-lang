@@ -1,0 +1,8 @@
+int:0 .. id:n NL
+int:5 . id:abs ( ) NL
+int:1 ..= int:3 NL
+id:t . int:0 . int:1 NL
+id:t . int:0 . id:x NL
+float:1.5 . id:abs ( ) NL
+id:t ?. int:0 . int:1 NL
+EOF

@@ -1,0 +1,11 @@
+if a {
+ b
+}
+else {
+ c
+}
+elsewhere
+try { d }
+
+// n
+catch { e }

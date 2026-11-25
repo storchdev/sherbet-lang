@@ -1,0 +1,6 @@
+if id:a { id:b NL
+} else { id:c NL
+} NL
+id:elsewhere NL
+try { id:d } catch { id:e } NL
+EOF

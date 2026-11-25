@@ -1,0 +1,2 @@
+int:0 int:42 int:1000000007 float:1.5 int:1e9 int:2.5e3 float:1e-3 int:0xFF int:0b1010 int:0o17 int:0xFFFF int:0xe5 NL
+EOF

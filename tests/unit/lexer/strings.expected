@@ -1,0 +1,3 @@
+str:"hello world" str:"a\tb" str:"q\"q" str:"" NL
+str:"{literal}" NL
+EOF

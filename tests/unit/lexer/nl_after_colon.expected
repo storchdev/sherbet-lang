@@ -1,0 +1,3 @@
+match id:x { id:A : int:1 NL
+} NL
+EOF

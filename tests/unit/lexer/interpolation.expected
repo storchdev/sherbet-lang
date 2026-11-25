@@ -1,0 +1,5 @@
+fstr[ "x = " { id:x } ] NL
+fstr[ { id:m [ str:"a" ] } ] NL
+fstr[ "{a} " { id:b } ] NL
+fstr[ { { int:1 : int:2 } [ int:1 ] } ] NL
+EOF

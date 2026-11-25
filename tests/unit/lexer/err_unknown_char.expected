@@ -1,0 +1,3 @@
+err_unknown_char.sher:1:3: error: unsupported token start character
+    a ` b
+      ^

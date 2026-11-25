@@ -1,0 +1,4 @@
+fstr[ { id:x = } ] NL
+fstr[ { id:x = : ".2" } ] NL
+fstr[ { id:a == id:b } ] NL
+EOF

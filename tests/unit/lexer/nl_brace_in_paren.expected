@@ -1,0 +1,4 @@
+id:f ( { id:a = int:1 NL
+id:a + int:1 } ) NL
+id:f ( { id:a } , id:b ) NL
+EOF
