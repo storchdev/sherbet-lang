@@ -145,6 +145,7 @@ type Lexer = ref object
   pos*: int
   prevTokenKind*: TokenKind
   hasLineBreak*: bool
+  stringStartPos*: int # must be set when scanTokens(inFString=true)
 
 type LexerResult* = ref object
   tokens*: seq[Token]
@@ -190,6 +191,7 @@ proc scanFStringExpr(mainLexer: Lexer, stringStartPos: int): FStringPart =
     pos: lexer.pos + 1, # consume the {
     prevTokenKind: tkNL,
     hasLineBreak: false,
+    stringStartPos: stringStartPos,
   )
   subLexer.scanTokens(inFString = true)
   # TODO: {x=} form
@@ -389,6 +391,17 @@ proc getKeywordKind(word: string): TokenKind =
 
 const LBrackets = {tkLBrace, tkLParen, tkLBracket, tkDotBracket}
 const RBrackets = {tkRBrace, tkRParen, tkRBracket}
+const BinaryOpTokens = {
+  tkPlus, tkMinus, tkMul, tkDiv, tkFloorDiv, tkPower, tkEq, tkNeq, tkGt, tkGeq, tkLt,
+  tkLeq, tkMod, tkAt, tkBackslash, tkBitAnd, tkBitOr, tkBitXor, tkLShift, tkRShift,
+  tkRange, tkRangeEq, tkDot, tkQuestionDot, tkPlusEq, tkMinusEq, tkMulEq, tkDivEq,
+  tkFloorDivEq, tkModEq, tkPowerEq, tkAtEq, tkBitAndEq, tkBitOrEq, tkBitXorEq,
+  tkLShiftEq, tkRShiftEq, tkAnd, tkOr, tkIn, tkIs,
+}
+# It makes sense to continue when a newline appears after these
+const ContTokens =
+  BinaryOpTokens - {tkRange, tkRangeEq} +
+  {tkAssign, tkFatArrow, tkColon, tkComma, tkNL, tkNot} + LBrackets
 
 const TokenSpellings = [
   ("**=", tkPowerEq),
@@ -480,6 +493,30 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
         lexer.emitToken(Token(kind: tkID, text: lexeme), start)
       else:
         lexer.emitToken(Token(kind: kind), start)
+      continue
+
+    if c == '\n':
+      if inFString:
+        # TODO: revisit when multiline str
+        lexer.fail(
+          lexer.stringStartPos, lexer.pos, "unexpected line break in string expression"
+        )
+      lexer.pos += 1
+      # emit if ALL are true:
+      # no innermost bracket OR innermost bracket is a {
+      # prev token is not a continuation
+      if (lexer.bracketStack.len == 0 or lexer.bracketStack[^1] == tkLBrace) and
+          lexer.prevTokenKind notin ContTokens:
+        lexer.emitToken(Token(kind: tkNL), start)
+
+      lexer.hasLineBreak = true
+      continue
+
+    # match comments now so it doesnt get picked up by `/` later
+    if c == '/' and lexer.peek(1) == '/':
+      lexer.pos += 2
+      while lexer.peek() != '\n' and lexer.pos < lexer.file.content.len:
+        lexer.pos += 1
       continue
 
     var match = false
