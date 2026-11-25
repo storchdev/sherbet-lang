@@ -1,6 +1,4 @@
 import std/os
-import std/sugar
-import std/sequtils
 import std/strutils
 import span, diag, lexer
 
@@ -26,4 +24,4 @@ let lexR = file.scan(sink)
 echo "errors:"
 sink.emitDiagnostics(fileList)
 echo "lex result:"
-echo lexR.tokens.map((t) => $t).join(" ")
+echo lexR.tokens.dump()

@@ -581,11 +581,13 @@ proc scan*(file: SherFile, sink: DiagnosticSink): LexerResult =
 proc `$`*(f: FStringPart): string
 
 proc `$`*(t: Token): string =
-  if t.kind == tkNL:
-    return "NL\n"
-
-  if t.kind in {tkID, tkInt, tkFloat, tkString}:
+  if t.kind in {tkID, tkInt, tkFloat}:
     return &"{$t.kind}:{t.text}"
+
+  if t.kind == tkString:
+    result = &"str:"
+    addQuoted(result, t.text)
+    return
 
   if t.kind == tkByte:
     return &"byte:{t.byteVal}"
@@ -614,3 +616,12 @@ proc `$`*(f: FStringPart): string =
       result = &"{{ {ttext}:{stext} }}"
     else:
       result = &"{{ {ttext} }}"
+
+proc dump*(tokens: seq[Token]): string =
+  result = ""
+  for i, t in tokens:
+    result &= $t
+    if t.kind == tkNL:
+      result &= "\n"
+    elif i < tokens.len - 1:
+      result &= " "

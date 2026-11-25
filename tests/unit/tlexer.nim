@@ -5,8 +5,6 @@ import std/unittest
 import std/streams
 import std/os
 import std/strutils
-import std/sequtils
-import std/sugar
 
 suite "diagnostics":
   setup:
@@ -22,13 +20,33 @@ suite "diagnostics":
       mutpath.removeSuffix("sher")
       let expected = readFile(mutpath & "expected")
 
-      if path.startsWith("err"):
+      var eDbg = "expected:\n"
+      addQuoted(eDbg, expected)
+      checkpoint(eDbg)
+
+      if extractFilename(path).startsWith("err"):
         let tmpBuf = newStringStream()
         sink.emitDiagnostics(flist, tmpBuf)
+        tmpBuf.setPosition(0)
+
+        var gDbg = "got:\n"
+        addQuoted(gDbg, tmpBuf.readAll())
+        checkpoint(gDbg)
+
         tmpBuf.setPosition(0)
         check expected == tmpBuf.readAll()
       else:
         let tmpBuf = newStringStream()
-        tmpBuf.write(lexR.tokens.map((t) => $t).join(" "))
+        tmpBuf.write(lexR.tokens.dump())
+        tmpBuf.setPosition(0)
+
+        if sink.hasErrors():
+          echo "unexpected errors:"
+          sink.emitdiagnostics(flist)
+
+        var gDbg = "got:\n"
+        addQuoted(gDbg, tmpBuf.readAll())
+        checkpoint(gDbg)
+
         tmpBuf.setPosition(0)
         check expected == tmpBuf.readAll()
