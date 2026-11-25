@@ -617,7 +617,7 @@ proc `$`*(f: FStringPart): string =
     else:
       result = &"{{ {ttext} }}"
 
-proc dump*(tokens: seq[Token]): string =
+proc dump*(tokens: openArray[Token]): string =
   result = ""
   for i, t in tokens:
     result &= $t
