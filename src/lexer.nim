@@ -1,6 +1,8 @@
 import diag
 import span
 import std/strutils
+import std/tables
+import std/strformat
 
 type
   TokenKind* = enum
@@ -386,6 +388,13 @@ proc getKeywordKind(word: string): TokenKind =
     of "false": tkFalse
     else: tkID
 
+const LBracketMap = {
+  '{': tkLBrace, '(': tkLParen, '[': tkLBracket # ".[": tkDotBracket,
+}.toTable
+const RBracketMap = {
+  '}': tkRBrace, ')': tkRParen, ']': tkRBracket # ".[": tkDotBracket,
+}.toTable
+
 proc scanTokens(lexer: Lexer, inFString: bool) =
   while true:
     if lexer.pos >= lexer.file.content.len:
@@ -403,23 +412,30 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
     if c in ['}', ':'] and inFString and lexer.bracketStack.len == 0:
       return
 
-    if c == '{':
-      lexer.bracketStack.add(tkLBrace)
-    elif c == '(':
-      lexer.bracketStack.add(tkLParen)
-    elif c == '[':
-      lexer.bracketStack.add(tkLBracket)
-    elif c == '.' and lexer.peek(1) == '[':
-      lexer.bracketStack.add(tkDotBracket)
-    elif c in ['}', ']', ')'] and lexer.bracketStack.len > 0:
-      discard lexer.bracketStack.pop()
-
     let start = lexer.pos
-    if c in IdentStartChars: # name or keyword
+
+    var bracketKind = LBracketMap.getOrDefault(c, tkID)
+    if bracketKind != tkID:
+      lexer.pos += 1
+      lexer.bracketStack.add(bracketKind)
+      lexer.emitToken(Token(kind: bracketKind), start)
+      continue
+
+    bracketKind = RBracketMap.getOrDefault(c, tkID)
+    if bracketKind != tkID:
+      lexer.pos += 1
+      lexer.emitToken(Token(kind: bracketKind), start)
+      if lexer.bracketStack.len == 0:
+        lexer.fail(start, lexer.pos, &"unmatched {c}")
+      discard lexer.bracketStack.pop()
+      continue
+
+    # Names and keywords
+    if c in IdentStartChars:
       lexer.pos += 1
       while true:
-        let c = lexer.peek()
-        if c notin IdentChars:
+        let c1 = lexer.peek()
+        if c1 notin IdentChars:
           break
         lexer.pos += 1
 
@@ -429,6 +445,77 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
         lexer.emitToken(Token(kind: tkID, text: lexeme), start)
       else:
         lexer.emitToken(Token(kind: kind), start)
+      continue
+
+    # Punctuation and operators
+    if c == '*':
+      let c1 = lexer.peek(1)
+      if c1 == '*':
+        if lexer.peek(2) == '=':
+          lexer.pos += 3
+          lexer.emitToken(Token(kind: tkPowerEq), start)
+          continue
+        lexer.pos += 2
+        lexer.emitToken(Token(kind: tkPower), start)
+        continue
+      if c1 == '=':
+        lexer.pos += 2
+        lexer.emitToken(Token(kind: tkMulEq), start)
+        continue
+      lexer.pos += 1
+      lexer.emitToken(Token(kind: tkMul), start)
+      continue
+    if c == '<':
+      let c1 = lexer.peek(1)
+      if c1 == '<':
+        if lexer.peek(2) == '=':
+          lexer.pos += 3
+          lexer.emitToken(Token(kind: tkLShiftEq), start)
+          continue
+        lexer.pos += 2
+        lexer.emitToken(Token(kind: tkLShift), start)
+        continue
+      if c1 == '=':
+        lexer.pos += 2
+        lexer.emitToken(Token(kind: tkLeq), start)
+        continue
+      lexer.pos += 1
+      lexer.emitToken(Token(kind: tkLt), start)
+      continue
+    if c == '>':
+      let c1 = lexer.peek(1)
+      if c1 == '>':
+        if lexer.peek(2) == '=':
+          lexer.pos += 3
+          lexer.emitToken(Token(kind: tkRShiftEq), start)
+          continue
+        lexer.pos += 2
+        lexer.emitToken(Token(kind: tkRShift), start)
+        continue
+      if c1 == '=':
+        lexer.pos += 2
+        lexer.emitToken(Token(kind: tkGeq), start)
+        continue
+      lexer.pos += 1
+      lexer.emitToken(Token(kind: tkGt), start)
+      continue
+    if c == '.':
+      let c1 = lexer.peek(1)
+      if c1 == '.':
+        if lexer.peek(2) == '=':
+          lexer.pos += 3
+          lexer.emitToken(Token(kind: tkRangeEq), start)
+          continue
+        lexer.pos += 2
+        lexer.emitToken(Token(kind: tkRange), start)
+        continue
+      if c1 == '[':
+        lexer.pos += 2
+        lexer.bracketStack.add(tkDotBracket)
+        lexer.emitToken(Token(kind: tkDotBracket), start)
+        continue
+      lexer.pos += 1
+      lexer.emitToken(Token(kind: tkDot), start)
       continue
 
     # TODO:other tokens!
