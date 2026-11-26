@@ -644,6 +644,11 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
 
       let lexeme = lexer.file.content[start ..< lexer.pos].replace("_", "")
 
+      if base == 10 and len(lexeme) > 1 and lexeme[0] == '0' and lexeme[1] in Digits:
+        lexer.fail(
+          start, lexer.pos, "leading zeros are not allowed; use '0o' for octal"
+        )
+
       # decide whether to emit a Int or Float
 
       var exp = 0 # exponent value
