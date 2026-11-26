@@ -251,6 +251,49 @@ proc scanFStringExpr(mainLexer: Lexer, stringStartPos: int): FStringPart =
 
   lexer.fail(stringStartPos, lexer.pos, "unclosed expression inside string")
 
+proc scanEsc(lexer: Lexer, failStart: int = -1): char =
+  ## This function expects lexer.pos to be on the backslash
+  ## Returns successfully with lexer.pos on the next character
+
+  var start = failStart
+  if start == -1:
+    start = lexer.pos
+
+  let c = lexer.peek(1)
+  var esc: char
+
+  case c
+  of 'n':
+    esc = '\n'
+    lexer.pos += 2
+  of 't':
+    esc = '\t'
+    lexer.pos += 2
+  of 'r':
+    esc = '\r'
+    lexer.pos += 2
+  of '0':
+    esc = char(0)
+    lexer.pos += 2
+  of '\\':
+    esc = '\\'
+    lexer.pos += 2
+  of '"':
+    esc = '"'
+    lexer.pos += 2
+  of '\'':
+    esc = '\''
+    lexer.pos += 2
+  of 'x':
+    if lexer.peek(2) notin HexDigits or lexer.peek(3) notin HexDigits:
+      lexer.fail(start, lexer.pos + 4, "invalid hex escape")
+    esc = char(parseHexInt(lexer.file.content[lexer.pos + 2 .. lexer.pos + 3]))
+    lexer.pos += 4
+  else:
+    lexer.fail(start, lexer.pos + 2, "invalid escape sequence")
+
+  return esc
+
 proc scanString(lexer: Lexer) =
   # TODO: raw strings, dropping first newline and common indents in multiline
   let startPos = lexer.pos
@@ -300,40 +343,7 @@ proc scanString(lexer: Lexer) =
 
     if lexer.peek() == '\\':
       # always consume char after
-      let c = lexer.peek(1)
-      var esc: char
-
-      case c
-      of 'n':
-        esc = '\n'
-        lexer.pos += 2
-      of 't':
-        esc = '\t'
-        lexer.pos += 2
-      of 'r':
-        esc = '\r'
-        lexer.pos += 2
-      of '0':
-        esc = char(0)
-        lexer.pos += 2
-      of '\\':
-        esc = '\\'
-        lexer.pos += 2
-      of '"':
-        esc = '"'
-        lexer.pos += 2
-      of '\'':
-        esc = '\''
-        lexer.pos += 2
-      of 'x':
-        if lexer.peek(2) notin HexDigits or lexer.peek(3) notin HexDigits:
-          lexer.fail(startPos, lexer.pos + 4, "invalid hex escape")
-        esc = char(parseHexInt(lexer.file.content[lexer.pos + 2 .. lexer.pos + 3]))
-        lexer.pos += 4
-      else:
-        lexer.fail(startPos, lexer.pos + 2, "invalid escape sequence")
-
-      str.add(esc)
+      str.add(lexer.scanEsc(startPos))
       continue
 
     if lexer.peek() == '{':
@@ -681,6 +691,37 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
       else:
         lexer.emitToken(Token(kind: tkInt, text: lexeme), start)
 
+      continue
+
+    if c == '\'':
+      let c1 = lexer.peek(1)
+      if c1 == '\'':
+        lexer.fail(start, start + 2, "empty byte literal")
+      if c1 == '\n' or lexer.pos + 1 >= lexer.file.content.len:
+        # line break of EOF
+        lexer.fail(start, start + 1, "unclosed byte literal")
+
+      var b: uint8
+
+      lexer.pos += 1
+      if c1 == '\\':
+        let esc = lexer.scanEsc(start)
+        b = esc.uint8
+      else:
+        b = c1.uint8
+        lexer.pos += 1
+
+      if lexer.peek() != '\'':
+        var i = lexer.pos
+        while true:
+          if i >= lexer.file.content.len or lexer.file.content[i] == '\n':
+            lexer.fail(start, lexer.pos, "unclosed byte literal")
+          if lexer.file.content[i] == '\'':
+            lexer.fail(start, i + 1, "byte literal holds more than one byte")
+          i += 1
+
+      lexer.pos += 1
+      lexer.emitToken(Token(kind: tkByte, byteVal: b), start)
       continue
 
     var match = false
