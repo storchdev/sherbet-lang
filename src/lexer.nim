@@ -698,7 +698,7 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
       if c1 == '\'':
         lexer.fail(start, start + 2, "empty byte literal")
       if c1 == '\n' or lexer.pos + 1 >= lexer.file.content.len:
-        # line break of EOF
+        # line break or EOF
         lexer.fail(start, start + 1, "unclosed byte literal")
 
       var b: uint8
