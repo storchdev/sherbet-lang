@@ -71,7 +71,7 @@ type
     tkRShift = ">>"
     # Brackets
     tkLParen = "("
-    tkRParen = ") "
+    tkRParen = ")"
     tkLBracket = "["
     tkRBracket = "]"
     tkDotBracket = ".["
@@ -464,7 +464,15 @@ const TokenSpellings = [
   (";", tkSemicolon),
 ]
 
+proc getIdentStop(lexer: Lexer, offset: int = 0): int =
+  ## Returns the index of the first non ident char starting from lexer.pos
+  var i = lexer.pos + offset
+  while i < lexer.file.content.len and lexer.file.content[i] in IdentChars:
+    i += 1
+  return i
+
 proc getTrailingZeros(s: string): int =
+  ## Returns number of trailing zeros at the end of s
   result = 0
   var i = s.len - 1
   while i >= 0 and s[i] == '0':
@@ -534,7 +542,7 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
     # numbers
 
     if c in Digits:
-      let c1 = lexer.peek()
+      let c1 = lexer.peek(1)
       var base = 10
       var shift = 0
       var allowedDigits = Digits
@@ -555,7 +563,9 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
           allowedDigits = {'0', '1'}
         of 'X', 'O', 'B':
           lexer.fail(
-            start, start + 2, &"base prefix must be lowercase: '0{c1.toLowerAscii()}'"
+            start,
+            lexer.getIdentStop(2),
+            &"base prefix must be lowercase: '0{c1.toLowerAscii()}'",
           )
         else:
           discard
@@ -563,16 +573,10 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
       lexer.pos += shift
       var point = false # whether we have seen a decimal point
       var e = false # whether we have seen an e
-      # var curStart = lexer.pos
-      # var basePart = ""
-      # var decimalPart = ""
-      # var expPart = ""
-      # var curPart = addr basePart
-      # var expSign = 1
 
       # make sure theres at least one digit in the start
       if shift > 0 and lexer.peek() notin allowedDigits:
-        lexer.fail(start, lexer.pos + 1, &"expected digit after 0{c1}")
+        lexer.fail(start, start + 2, &"expected digits after '0{c1}'")
 
       while true:
         if lexer.pos >= lexer.file.content.len:
@@ -582,11 +586,7 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
 
         if d == '_':
           if lexer.peek(-1) notin allowedDigits or lexer.peek(1) notin allowedDigits:
-            lexer.fail(
-              start,
-              lexer.pos + 1,
-              "underscore in number literal must be surrounded by digits",
-            )
+            lexer.fail(start, lexer.getIdentStop(), "'_' must be between digits")
           lexer.pos += 1
           continue
 
@@ -596,35 +596,29 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
 
           if lexer.peek(1) notin allowedDigits:
             break
-            # lexer.fail(start, lexer.pos + 2, "expected digit after decimal point")
 
           point = true
-          # basePart = lexer.file.content[curStart ..< lexer.pos]
-          # curPart = addr decimalPart
           lexer.pos += 1
-          # curStart = lexer.pos
           continue
 
         if d in {'e', 'E'} and base == 10:
           if e or lexer.prevTokenKind in {tkDot, tkQuestionDot}:
-            lexer.fail(start, lexer.pos + 1, "invalid letter in number literal")
+            let stop = lexer.getIdentStop()
+            let suff = lexer.file.content[lexer.pos ..< stop]
+            lexer.fail(
+              start, lexer.getIdentStop(1), &"invalid suffix '{suff}' on number"
+            )
           e = true
-
-          # curPart[] = lexer.file.content[curStart ..< lexer.pos]
-          # curPart = addr expPart
 
           if lexer.peek(1) in Digits:
             lexer.pos += 1
           elif lexer.peek(1) in {'+', '-'}:
-            # if lexer.peek(1) == '-':
-            #   expSign = -1
             if lexer.peek(2) notin allowedDigits:
-              lexer.fail(start, lexer.pos + 3, "expected an exponent magnitude")
+              lexer.fail(start, lexer.getIdentStop(2), "expected digits in exponent")
             lexer.pos += 2
           else:
-            lexer.fail(start, lexer.pos + 2, "expected an exponent")
+            lexer.fail(start, lexer.getIdentStop(1), "expected digits in exponent")
 
-          # curStart = lexer.pos
           continue
 
         if d in allowedDigits:
@@ -632,44 +626,55 @@ proc scanTokens(lexer: Lexer, inFString: bool) =
           continue
 
         if d in Letters:
-          lexer.fail(start, lexer.pos + 1, "invalid letter in number literal")
+          let stop = lexer.getIdentStop()
+          let suff = lexer.file.content[lexer.pos ..< stop]
+          lexer.fail(start, stop, &"invalid suffix '{suff}' on number")
 
         if d in Digits:
+          let adj =
+            case base
+            of 2: "binary"
+            of 8: "octal"
+            else: "unknown"
           lexer.fail(
-            start, lexer.pos + 1, &"digit too large in number literal of base {base}"
+            start, lexer.getIdentStop(), &"invalid digit '{d}' in {adj} literal"
           )
 
         break # ending the literal
 
-      let lexeme = lexer.file.content[start ..< lexer.pos].replace("_", "").toUpper()
+      let lexeme = lexer.file.content[start ..< lexer.pos].replace("_", "")
+
+      # decide whether to emit a Int or Float
+
+      var exp = 0 # exponent value
+      var z = 0 # number of trailing zeros
+      var f = 0 # number of fraction digits
 
       if e:
-        if point:
-          let a = lexeme.find(".")
-          let b = lexeme.find("E", a + 1)
-          if a < 0 or b < 0:
-            lexer.fail(start, lexer.pos, "impossible failure")
+        let b = lexeme.find({'e', 'E'})
+        let mantissa = lexeme[0 ..< b]
+        z = getTrailingZeros(mantissa.replace(".", ""))
+        let a = mantissa.find('.')
+        if a >= 0:
+          f = mantissa.len - a - 1
 
-          let dec = lexeme[a + 1 ..< b]
-          let exp = parseInt(lexeme[b + 1 ..< lexeme.len])
-          let figs = len(dec) - getTrailingZeros(dec)
-
-          if figs + exp >= 0:
-            lexer.emitToken(Token(kind: tkInt, text: lexeme), start)
-          else:
+        try:
+          exp = parseInt(lexeme[b + 1 ..< lexeme.len])
+        except ValueError:
+          if lexeme[b + 1] == '-':
             lexer.emitToken(Token(kind: tkFloat, text: lexeme), start)
+          else:
+            lexer.emitToken(Token(kind: tkInt, text: lexeme), start)
+          continue
+
+        if exp - f + z >= 0:
+          lexer.emitToken(Token(kind: tkInt, text: lexeme), start)
         else:
-          let b = lexeme.find("E")
-          if b < 0:
-            lexer.fail(start, lexer.pos, "impossible failure")
-
-          let exp = parseInt(lexeme[b + 1 ..< lexeme.len])
-          if getTrailingZeros(lexeme) + exp >= 0:
-            lexer.emitToken(Token(kind: tkInt, text: lexeme), start)
-          else:
-            lexer.emitToken(Token(kind: tkFloat, text: lexeme), start)
-      else:
+          lexer.emitToken(Token(kind: tkFloat, text: lexeme), start)
+      elif point:
         lexer.emitToken(Token(kind: tkFloat, text: lexeme), start)
+      else:
+        lexer.emitToken(Token(kind: tkInt, text: lexeme), start)
 
       continue
 
